@@ -4,19 +4,20 @@ import Docker from "dockerode";
 dotenv.config();
 
 const docker = new Docker();
-
+//TODO : Timer to kill container if it runs too long (e.g. 30 seconds) to prevent abuse and resource exhaustion. This can be done by setting a timeout when starting the container and forcefully stopping it if it exceeds the time limit.
 const worker = new Worker('execution', async (job: Job) => {
     console.log("worker hit")
     console.log(job.data);
     console.log(job.data.code);
     let container: Docker.Container | undefined = undefined;
+    let timeoutHandle: NodeJS.Timeout | undefined = undefined;
     try {
         container = await docker.createContainer({
             Image: "node:20-alpine",
             Cmd: ["node", "-e", job.data.code],
             AttachStdout: true,
             AttachStderr: true,
-            // Tty: false,
+            Tty: false,
             HostConfig: {
                 Memory: 1024 * 1024 * 64,
                 NanoCpus: 500_000_000,
@@ -30,13 +31,33 @@ const worker = new Worker('execution', async (job: Job) => {
         }
 
         await container.start();
-        const waitContainer = await container.wait();
+        const waitPromise = container.wait().finally(()=>{
+            if(timeoutHandle){
+                clearTimeout(timeoutHandle);
+            }
+        })
+        const timerPromise = new Promise<never>((_,reject) => {
+            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || "5000", 10);
+            timeoutHandle = setTimeout(async () => {
+                try {
+                    await container?.stop({ t: 0 });
+                } catch {}
+
+                try {
+                    await container?.kill();
+                } catch {}
+                console.error("Execution timed out and container was stopped");
+                reject(new Error("Execution timed out"));
+            }, timeout);
+        });
+        const result = await Promise.race([waitPromise, timerPromise]);
+
         const logsBuffer = (await container.logs({ stdout: true, stderr: true })) as unknown as Buffer; 
         const logs = logsBuffer.toString("utf-8");
         console.log(logsBuffer);
         return {
-            success: waitContainer.StatusCode === 0,
-            exitCode: waitContainer.StatusCode,
+            success: result.StatusCode === 0,
+            exitCode: result.StatusCode,
             ranAt: Date.now(),
             logs,
         }; 

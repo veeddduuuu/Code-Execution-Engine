@@ -16,6 +16,7 @@
     "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.7.0",
+    "ai-digest": "^1.5.1",
     "bullmq": "^5.76.8",
     "cors": "^2.8.6",
     "dockerode": "^5.0.0",

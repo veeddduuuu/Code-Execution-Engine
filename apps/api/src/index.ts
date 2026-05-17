@@ -45,7 +45,7 @@ app.post('/execute', async (req, res) => {
     }
 });
 
-app.get('/job/:id', async (req, res) => {
+app.get('/jobs/:id', async (req, res) => {
     const jobId = req.params.id;
     const entry = map.get(jobId);
     if(!entry){
