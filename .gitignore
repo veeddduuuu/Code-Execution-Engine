@@ -1,0 +1,59 @@
+```gitignore
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+build
+coverage
+.next
+out
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs
+
+# Runtime/temp
+tmp
+temp
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite
+.vite
+
+# Turbo / Monorepo
+.turbo
+
+# pnpm
+.pnpm-store
+
+# Docker
+docker-data
+
+# Redis
+dump.rdb
+
+# Testing
+playwright-report
+test-results
+
+# Misc
+.cache
+```
+docs
