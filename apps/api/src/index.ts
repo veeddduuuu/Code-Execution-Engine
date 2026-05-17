@@ -26,8 +26,10 @@ executionQueueEvents.on('failed', ({ jobId, failedReason }) => {
 });
 
 app.post('/execute', async (req, res) => {
-    const { jobData } = req.body;
-    console.log(`Received code to execute: ${jobData.code}`);
+    const { code, language } = req.body;
+    const jobData = { code, language };
+    console.log(`Received code to execute`);
+    console.log(jobData);   
     try {
         const job = await addJobs(jobData);
         map.set(String(job.id), { status: 'pending', result: null });

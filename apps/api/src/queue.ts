@@ -19,7 +19,7 @@ type JobData = {
 };
 
 export const addJobs = async (jobData: JobData): Promise<Job> => {
-    const job = await executionQueue.add('executeCode', { jobData });
+    const job = await executionQueue.add('executeCode', jobData);
     if (job.id === undefined || job.id === null) {
         throw new Error('BullMQ did not return a job id');
     }
