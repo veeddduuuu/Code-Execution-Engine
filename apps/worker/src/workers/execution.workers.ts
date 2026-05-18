@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import Docker from "dockerode";
 dotenv.config();
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../../packages/types/index.ts';
-import { truncate } from "node:fs";
+import {connection} from "../../../../packages/config/redis.config.ts";
 
 function demuxDockerLogs(buffer: Buffer): string{
     let logs = "";
@@ -51,7 +51,7 @@ const worker = new Worker('execution', async (job: Job) => {
             }
         })
         const timerPromise = new Promise<never>((_,reject) => {
-            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || "30000", 10);
+            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || '5000', 10);
             timeoutHandle = setTimeout(async () => {
                 try {
                     await container?.stop({ t: 0 });
@@ -75,6 +75,9 @@ const worker = new Worker('execution', async (job: Job) => {
             ranAt: Date.now(),
             logs,
         };
+        if(!executionResult.success){
+            throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);    
+        }
         return executionResult;
     } catch (error) { 
         console.error("Execution worker error:", error);
@@ -92,11 +95,8 @@ const worker = new Worker('execution', async (job: Job) => {
     }
 }, 
 {
-    connection: {
-        host: process.env.REDIS_HOST || "localhost",
-        port: parseInt(process.env.REDIS_PORT || "6379", 10),
-        maxRetriesPerRequest: null,
-    },
+    connection,
+    concurrency: 3
 });
 
 worker.on('completed', (job: Job, result: ExecutionResult) => {
