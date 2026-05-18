@@ -1,8 +1,20 @@
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+export type ExecutionResult = {
+    success: boolean;
+    exitCode: number;
+    ranAt: number;
+    logs: string;
+};
+
 export type ExecutionJob = {
     jobId: string;
     status: JobStatus;
-    result: string | null;
+    result: ExecutionResult | null;
     error?: string;
 };
+
+export type AddJobData = {
+    code: string;
+    language: 'javascript';
+}

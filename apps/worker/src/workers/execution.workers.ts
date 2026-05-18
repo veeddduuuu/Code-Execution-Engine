@@ -2,9 +2,23 @@ import { Job, Worker } from "bullmq";
 import dotenv from "dotenv";
 import Docker from "dockerode";
 dotenv.config();
+import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../../packages/types/index.ts';
+import { truncate } from "node:fs";
+
+function demuxDockerLogs(buffer: Buffer): string{
+    let logs = "";
+    for(let i = 0; i < buffer.length;){
+        const header = buffer.slice(i, i + 8);
+        const streamType = header.readUInt8(0);
+        const payloadLength = header.readUInt32BE(4);
+        const payload = buffer.slice(i + 8, i + 8 + payloadLength);
+        logs += payload.toString("utf-8");
+        i += 8 + payloadLength;
+    }
+    return logs;
+}
 
 const docker = new Docker();
-//TODO : Timer to kill container if it runs too long (e.g. 30 seconds) to prevent abuse and resource exhaustion. This can be done by setting a timeout when starting the container and forcefully stopping it if it exceeds the time limit.
 const worker = new Worker('execution', async (job: Job) => {
     console.log("worker hit")
     console.log(job.data);
@@ -37,7 +51,7 @@ const worker = new Worker('execution', async (job: Job) => {
             }
         })
         const timerPromise = new Promise<never>((_,reject) => {
-            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || "5000", 10);
+            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || "30000", 10);
             timeoutHandle = setTimeout(async () => {
                 try {
                     await container?.stop({ t: 0 });
@@ -53,14 +67,15 @@ const worker = new Worker('execution', async (job: Job) => {
         const result = await Promise.race([waitPromise, timerPromise]);
 
         const logsBuffer = (await container.logs({ stdout: true, stderr: true })) as unknown as Buffer; 
-        const logs = logsBuffer.toString("utf-8");
-        console.log(logsBuffer);
-        return {
+        const logs = demuxDockerLogs(logsBuffer);
+        console.log(logs);
+        const executionResult: ExecutionResult = {
             success: result.StatusCode === 0,
             exitCode: result.StatusCode,
             ranAt: Date.now(),
             logs,
-        }; 
+        };
+        return executionResult;
     } catch (error) { 
         console.error("Execution worker error:", error);
         throw error;
@@ -84,8 +99,8 @@ const worker = new Worker('execution', async (job: Job) => {
     },
 });
 
-worker.on('completed', (job: Job, result) => {
-    console.log(`Job ${job.id} completed with result: ${result}`);
+worker.on('completed', (job: Job, result: ExecutionResult) => {
+    console.log(`Job ${job.id} completed with result: ${JSON.stringify(result)}`);
 });
 
 worker.on('failed', (job: Job | undefined, err: Error) => {
