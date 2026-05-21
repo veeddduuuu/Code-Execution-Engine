@@ -1,9 +1,11 @@
-import { Job, Worker } from "bullmq";
+import { Job, tryCatch, Worker } from "bullmq";
 import dotenv from "dotenv";
 import Docker from "dockerode";
 dotenv.config();
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../../packages/types/index.ts';
 import {connection} from "../../../../packages/config/redis.config.ts";
+import fs from "fs";
+import path from "path";
 
 function demuxDockerLogs(buffer: Buffer): string{
     let logs = "";
@@ -16,7 +18,7 @@ function demuxDockerLogs(buffer: Buffer): string{
         i += 8 + payloadLength;
     }
     return logs;
-}
+}export default worker;
 
 const docker = new Docker();
 const worker = new Worker('execution', async (job: Job) => {
@@ -25,18 +27,21 @@ const worker = new Worker('execution', async (job: Job) => {
     console.log(job.data.code);
     let container: Docker.Container | undefined = undefined;
     let timeoutHandle: NodeJS.Timeout | undefined = undefined;
+    const hostFilePath = path.join('/tmp', `${job.id}.js`);
     try {
+        fs.writeFileSync(hostFilePath, job.data.code, 'utf-8');
         container = await docker.createContainer({
             Image: "node:20-alpine",
-            Cmd: ["node", "-e", job.data.code],
+            Cmd: ["node", "/app/code.js"],
             AttachStdout: true,
             AttachStderr: true,
             Tty: false,
             HostConfig: {
-                Memory: 1024 * 1024 * 64,
+                Memory: 1024 * 1024 * 128,
                 NanoCpus: 500_000_000,
                 NetworkMode: "none",
                 AutoRemove: false,
+                Binds : [`${hostFilePath}:/app/code.js:ro`],
             }
         });
         
@@ -51,7 +56,7 @@ const worker = new Worker('execution', async (job: Job) => {
             }
         })
         const timerPromise = new Promise<never>((_,reject) => {
-            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || '5000', 10);
+            const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || '30000', 10);
             timeoutHandle = setTimeout(async () => {
                 try {
                     await container?.stop({ t: 0 });
@@ -89,8 +94,16 @@ const worker = new Worker('execution', async (job: Job) => {
                 console.log("Container cleaned up"); 
             } 
             catch (cleanupError) { 
-                console.error("Failed to cleanup container:", cleanupError); 
+                console.error("Failed to cleanup container", cleanupError); 
             } 
+        }
+        try {
+            if(fs.existsSync(hostFilePath)){
+                fs.unlinkSync(hostFilePath);
+                console.log("Host file cleaned up");
+            }
+        } catch (cleanupError) {
+            console.error("Failed to clean up host file:", cleanupError);
         }
     }
 }, 

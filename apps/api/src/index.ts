@@ -1,6 +1,6 @@
 //Create endpoint POST /execute
 import express from 'express';
-import { addJobs, executionQueue } from './queue';
+import { executionQueue, addJobs } from "./../../../packages/queues/index.ts";
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../packages/types/index';
 
 const app = express();
