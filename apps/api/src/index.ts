@@ -1,9 +1,61 @@
-//Create endpoint POST /execute
 import express from 'express';
 import { executionQueue, addJobs } from "./../../../packages/queues/index.ts";
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../packages/types/index';
+import {WebSocketServer, WebSocket} from 'ws';
+import http from 'http';
+import { createRedisClient } from '../../../packages/config/redis.config.ts';
 
+const redis = createRedisClient();
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({
+    server:server,
+    path : '/ws'
+});
+const clients = new Map<string, import('ws').WebSocket>();
+
+wss.on('connection', (ws) => {
+    console.log('Client connected to WebSocket on /ws');
+    ws.on('message', (message) => {
+        try{
+            const parsedMessage = JSON.parse(message.toString());
+            const type = parsedMessage.type;
+            const jobId = parsedMessage.jobId;
+            if(type === 'subscribe' && jobId){
+                console.log(`Client subscribed to jobId ${jobId}`);
+                clients.set(`job:${jobId}`, ws);
+                redis.subscribe(`job:${jobId}`, (err, count) => {
+                    if (err) {
+                        console.error('Failed to subscribe to Redis channel:', err);
+                    } else {
+                        console.log(`Subscribed to Redis channel. Subscription count: ${count}`);
+                    }
+                });
+                ws.send(JSON.stringify({ message: `Subscribed to jobId ${jobId}` }));
+            }
+        }
+        catch(error){
+            console.error('Error processing message:', error);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log('Client disconnected from WebSocket');
+        for(const [job, socket] of clients.entries()){
+            if(socket === ws){
+                clients.delete(job);
+                console.log(`Client unsubscribed from ${job}`);
+                break;
+            }
+        }
+    });
+});
+
+redis.on('message', (channel, message) => {
+    console.log(`Received message from Redis channel ${channel}: ${message}`);
+    clients.get(channel)?.send(JSON.stringify({ channel, message }));
+});
+
 app.use(express.json({limit : '50kb'}));
 
 app.get('/health', (req, res) => {
@@ -21,7 +73,7 @@ app.post('/execute', async (req, res) => {
             jobId: String(job.id), 
             status : 'pending' as JobStatus,
             result : null,
-            //TODO : wsChannel : add ws channel to listen for job status updates
+            wsChannel : `job:${job.id}` 
         });
     } catch (error) {
         console.error('Error adding job to queue:', error);
@@ -69,6 +121,6 @@ app.get('/jobs/:id', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`API server is running on port ${PORT}`);
 });

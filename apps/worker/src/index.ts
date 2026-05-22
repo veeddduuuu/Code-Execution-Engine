@@ -1,9 +1,12 @@
 import "./workers/execution.workers";
 import express from 'express';
 import { executionQueue } from "../../../packages/queues/index.ts";
+import {WebSocketServer} from 'ws';
 
 const app = express();
 app.use(express.json());
+
+const ws = new WebSocket('ws://localhost:3000/ws');
 
 app.get('/health', async (req, res) => {
     const activeJobs = await executionQueue.getActiveCount();
