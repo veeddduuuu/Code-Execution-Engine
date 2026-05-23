@@ -9,7 +9,7 @@ import path from "path";
 import { PassThrough } from "stream";
 
 const redis = createRedisClient();
-const scratchDir = path.join(process.env.HOME || '/home/vedant', '.cee-scratch');
+const scratchDir = path.join('/home/vedant/', '.cee-scratch');
 if (!fs.existsSync(scratchDir)) {
     fs.mkdirSync(scratchDir, { recursive: true });
 }
@@ -21,7 +21,7 @@ const worker = new Worker('execution', async (job: Job) => {
     console.log(job.data.code);
     let container: Docker.Container | undefined = undefined;
     let timeoutHandle: NodeJS.Timeout | undefined = undefined;
-    const hostFilePath = path.join('/tmp', `${job.id}.js`);
+    const hostFilePath = path.join(scratchDir, `${job.id}.js`);
     try {
         fs.writeFileSync(hostFilePath, job.data.code, { encoding: 'utf-8', mode: 0o644 });
         container = await docker.createContainer({
@@ -96,6 +96,13 @@ const worker = new Worker('execution', async (job: Job) => {
         if(!executionResult.success){
             throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);    
         }
+
+        await redis.publish(`job:${job.id}`, JSON.stringify({
+            type:"done",
+            success: executionResult.success,
+            exitCode: executionResult.exitCode,
+
+        }));
 
         return executionResult;
 

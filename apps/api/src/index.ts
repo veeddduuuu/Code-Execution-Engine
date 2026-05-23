@@ -1,9 +1,11 @@
 import express from 'express';
 import { executionQueue, addJobs } from "./../../../packages/queues/index.ts";
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../packages/types/index';
-import {WebSocketServer, WebSocket} from 'ws';
+import ws, {WebSocketServer, WebSocket} from 'ws';
 import http from 'http';
 import { createRedisClient } from '../../../packages/config/redis.config.ts';
+import { set } from 'zod';
+import { ExtendedWebSocket } from '../../../packages/types/index.ts';
 
 const redis = createRedisClient();
 const app = express();
@@ -12,10 +14,12 @@ const wss = new WebSocketServer({
     server:server,
     path : '/ws'
 });
-const clients = new Map<string, import('ws').WebSocket>();
+const clients = new Map<string, ExtendedWebSocket>();
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws: ExtendedWebSocket) => {
     console.log('Client connected to WebSocket on /ws');
+    ws.isAlive = true;
+
     ws.on('message', (message) => {
         try{
             const parsedMessage = JSON.parse(message.toString());
@@ -39,6 +43,10 @@ wss.on('connection', (ws) => {
         }
     });
 
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
+
     ws.on('close', () => {
         console.log('Client disconnected from WebSocket');
         for(const [job, socket] of clients.entries()){
@@ -51,10 +59,39 @@ wss.on('connection', (ws) => {
     });
 });
 
+const periodicCheck = setInterval(()=>{
+    clients.forEach((ws) => {
+        if(!ws.isAlive){
+            ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
 redis.on('message', (channel, message) => {
     console.log(`Received message from Redis channel ${channel}: ${message}`);
     clients.get(channel)?.send(JSON.stringify({ channel, message }));
 });
+
+redis.on('message', (channel, message) => {
+    
+    const parsedMessage = JSON.parse(message);
+    
+    if(parsedMessage.type === 'done'){
+        console.log(`Job ${channel} completed with result: ${message}`);
+        redis.unsubscribe(channel, (err, count) => {
+            if (err) {
+                console.error('Failed to unsubscribe from Redis channel:', err);
+            } else {
+                console.log(`Unsubscribed from Redis channel. Subscription count: ${count}`);
+                clients.get(channel)?.close();
+                clients.delete(channel);
+            }
+        });
+    }
+});
+
 
 app.use(express.json({limit : '50kb'}));
 
