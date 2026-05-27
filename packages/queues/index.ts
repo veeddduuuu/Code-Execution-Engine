@@ -2,9 +2,9 @@ import { Job, Queue, QueueEvents } from 'bullmq';
 import dotenv from 'dotenv';
 dotenv.config();
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../types/index';
-import { connection } from '../config/redis.config';
+import { redisConfig } from '../config/redis.config';
 
-export const executionQueue = new Queue('execution', { connection });
+export const executionQueue = new Queue('execution', { connection: redisConfig });
 
 
 export const addJobs = async (jobData: AddJobData): Promise<Job> => {
