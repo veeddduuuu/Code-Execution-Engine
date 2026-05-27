@@ -1,3 +1,5 @@
+import {WebSocket} from 'ws';
+
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type ExecutionResult = {
@@ -17,4 +19,8 @@ export type ExecutionJob = {
 export type AddJobData = {
     code: string;
     language: 'javascript';
+}
+
+export interface ExtendedWebSocket extends WebSocket {
+    isAlive : boolean
 }
