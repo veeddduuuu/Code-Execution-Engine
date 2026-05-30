@@ -48,25 +48,35 @@ const worker = new Worker('execution', async (job: Job) => {
 
         container.modem.demuxStream(muxedStream, stdoutStream, stderrStream);
 
-        stdoutStream.on("data", (chunk) => {
+        stdoutStream.on("data", async (chunk) => {
             console.log(`Container stdout: ${chunk.toString()}`);
             finalLogs += chunk.toString();
-            redis.publish(`job:${job.id}`, JSON.stringify({
+            const logEntry = {
                 type: 'LOG',
                 stream: 'stdout',
                 data: chunk.toString(),
                 ts: Date.now()
-            }));
+            };
+            await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
+            await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
+            await redis.ltrim(`job:${job.id}:logs`, 0, 99);
+            await redis.expire(`job:${job.id}:logs`, 60 * 60 * 24);
         });
-        stderrStream.on("data", (chunk) => {
+
+        stderrStream.on("data", async (chunk) => {
             console.error(`Container stderr: ${chunk.toString()}`);
             finalLogs += chunk.toString();
-            redis.publish(`job:${job.id}`, JSON.stringify({
+            const logEntry = {
                 type: 'LOG',
                 stream: 'stderr',
                 data: chunk.toString(),
                 ts: Date.now()
-            }));
+            }
+
+            await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
+            await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
+            await redis.ltrim(`job:${job.id}:logs`, 0, 99);
+            await redis.expire(`job:${job.id}:logs`, 60 * 60 * 24);
         });
 
         if (!container) {

@@ -20,6 +20,12 @@ export function createWebSocketServer(server : http.Server){
 				const jobId = parsedMessage.jobId;
 				if(type === 'SUBSCRIBE' && jobId){
 					console.log(`Client subscribed to jobId ${jobId}`);
+					const logs = await redis.lrange(`job:${jobId}:logs`, 0, -1);
+					logs.reverse();
+					for(const log of logs){
+						ws.send(log);
+					}
+					console.log(`Sent last 100 logs for jobId ${jobId} to client`);
 					subscribeClient(jobId, ws);
 					await redis.subscribe(`job:${jobId}`, (err, count) => {
 						if (err) {
