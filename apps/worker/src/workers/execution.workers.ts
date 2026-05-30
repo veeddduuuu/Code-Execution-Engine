@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import Docker from "dockerode";
 dotenv.config();
 import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../../packages/types/index.ts';
-import {redisConfig, createRedisClient} from '../../../../packages/config/redis.config.ts';
+import { redisConfig, createRedisClient } from '../../../../packages/config/redis.config.ts';
 import fs from "fs";
 import path from "path";
 import { PassThrough } from "stream";
@@ -35,15 +35,15 @@ const worker = new Worker('execution', async (job: Job) => {
                 NanoCpus: 500_000_000,
                 NetworkMode: "none",
                 AutoRemove: false,
-                Binds : [`${hostFilePath}:/app/code.js:ro`],
+                Binds: [`${hostFilePath}:/app/code.js:ro`],
             }
         });
 
         const muxedStream = await container.attach({ stream: true, stdout: true, stderr: true });
-    
+
         const stdoutStream = new PassThrough();
         const stderrStream = new PassThrough();
-        
+
         let finalLogs = "";
 
         container.modem.demuxStream(muxedStream, stdoutStream, stderrStream);
@@ -51,12 +51,22 @@ const worker = new Worker('execution', async (job: Job) => {
         stdoutStream.on("data", (chunk) => {
             console.log(`Container stdout: ${chunk.toString()}`);
             finalLogs += chunk.toString();
-            redis.publish(`job:${job.id}`, JSON.stringify({ type: 'stdout', message: chunk.toString() }));
+            redis.publish(`job:${job.id}`, JSON.stringify({
+                type: 'LOG',
+                stream: 'stdout',
+                data: chunk.toString(),
+                ts: Date.now()
+            }));
         });
         stderrStream.on("data", (chunk) => {
             console.error(`Container stderr: ${chunk.toString()}`);
             finalLogs += chunk.toString();
-            redis.publish(`job:${job.id}`, JSON.stringify({ type: 'stderr', message: chunk.toString() }));
+            redis.publish(`job:${job.id}`, JSON.stringify({
+                type: 'LOG',
+                stream: 'stderr',
+                data: chunk.toString(),
+                ts: Date.now()
+            }));
         });
 
         if (!container) {
@@ -64,20 +74,20 @@ const worker = new Worker('execution', async (job: Job) => {
         }
 
         await container.start();
-        const waitPromise = container.wait().finally(()=>{
-            if(timeoutHandle){
+        const waitPromise = container.wait().finally(() => {
+            if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
             }
         })
-        const timerPromise = new Promise<never>((_,reject) => {
+        const timerPromise = new Promise<never>((_, reject) => {
             const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || '30000', 10);
             timeoutHandle = setTimeout(async () => {
                 try {
                     await container?.stop({ t: 0 });
-                } catch {}
+                } catch { }
                 try {
                     await container?.kill();
-                } catch {}
+                } catch { }
                 finalLogs += "Execution timed out and container was stopped\n";
                 console.error("Execution timed out and container was stopped");
                 reject(new Error("Execution timed out"));
@@ -93,38 +103,38 @@ const worker = new Worker('execution', async (job: Job) => {
             logs: finalLogs,
         };
 
-        if(!executionResult.success){
-            throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);    
+        if (!executionResult.success) {
+            throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);
         }
 
         await redis.publish(`job:${job.id}`, JSON.stringify({
-            type:'DONE',
+            type: 'DONE',
             success: executionResult.success,
             exitCode: executionResult.exitCode,
-
+            ts: Date.now()
         }));
 
         return executionResult;
 
-    } catch (error) { 
+    } catch (error) {
 
         console.error("Execution worker error:", error);
         throw error;
 
     } finally {
 
-        if (container) { 
-            try { 
-                await container.remove({ force: true }); 
-                console.log("Container cleaned up"); 
-            } 
-            catch (cleanupError) { 
-                console.error("Failed to cleanup container", cleanupError); 
-            } 
+        if (container) {
+            try {
+                await container.remove({ force: true });
+                console.log("Container cleaned up");
+            }
+            catch (cleanupError) {
+                console.error("Failed to cleanup container", cleanupError);
+            }
         }
 
         try {
-            if(fs.existsSync(hostFilePath)){
+            if (fs.existsSync(hostFilePath)) {
                 fs.unlinkSync(hostFilePath);
                 console.log("Host file cleaned up");
             }
@@ -132,11 +142,11 @@ const worker = new Worker('execution', async (job: Job) => {
             console.error("Failed to clean up host file:", cleanupError);
         }
     }
-}, 
-{
-    connection: redisConfig,
-    concurrency: 3
-});
+},
+    {
+        connection: redisConfig,
+        concurrency: 3
+    });
 
 worker.on('completed', (job: Job, result: ExecutionResult) => {
     console.log(`Job ${job.id} completed with result: ${JSON.stringify(result)}`);
