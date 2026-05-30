@@ -24,12 +24,6 @@ export function createWebSocketServer(server : http.Server){
 					await redis.subscribe(`job:${jobId}`, (err, count) => {
 						if (err) {
 							console.error('Failed to subscribe to Redis channel:', err);
-						} else {
-							 ws.send(
-								JSON.stringify({
-									type: 'SUBSCRIBED',
-									jobId,
-								}));
 						}
 					});
 				}
@@ -70,6 +64,9 @@ export function createWebSocketServer(server : http.Server){
 			if(parsedMessage.type === 'DONE'){
 				console.log(`Job ${channel} completed with result: ${message}`);
 				await redis.unsubscribe(channel);
+				console.log(`Unsubscribed from Redis channel ${channel}`);
+				jobSubscrptions.delete(channel);
+				console.log(`Deleted job subscription for channel ${channel}`);
 			}
 		}
 		catch(error){

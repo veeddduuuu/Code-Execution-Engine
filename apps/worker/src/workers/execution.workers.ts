@@ -98,7 +98,7 @@ const worker = new Worker('execution', async (job: Job) => {
         }
 
         await redis.publish(`job:${job.id}`, JSON.stringify({
-            type:"done",
+            type:'DONE',
             success: executionResult.success,
             exitCode: executionResult.exitCode,
 

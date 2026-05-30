@@ -1,8 +1,13 @@
-import { Request, Response } from 'express';
-import { getExecutionJobById } from '../services/jobs.service';
+    import { Request, Response } from 'express';
+import { getExecutionJobById, getAllJobs } from '../services/job.service';
 
 type JobParams = {
     id: string;
+}
+
+export const getJobs = async(req: Request, res: Response) => {
+    const jobs = await getAllJobs();
+    return res.status(200).json(jobs);
 }
 
 export const getJobStatus = async(req: Request<JobParams>, res: Response)=>{
