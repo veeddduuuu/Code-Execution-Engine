@@ -1,5 +1,44 @@
 services:
   redis:
     image: redis:7-alpine
+    container_name: redis
     ports:
       - "6379:6379"
+  api:
+    image: node:22-alpine
+    container_name: api
+    working_dir: /apps
+    command: sh -c "corepack enable && pnpm install && pnpm run dev:api"
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/apps
+    depends_on:
+      - redis
+    environment:
+      - CI=true
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  worker:
+    image: node:22-alpine
+    container_name: worker
+    working_dir: /apps
+    command: sh -c "corepack enable && pnpm install && pnpm run dev:worker"
+    volumes:
+      - .:/apps
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    ports:
+      - "3001:3001"
+    depends_on:
+      - redis
+    environment:
+      - CI=true
+      - PORT=3001
+      - DOCKER_SOCKET=/var/run/docker.sock
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EXECUTION_TIMEOUT_MS=30000
+      - SCRATCH_DIR=/tmp
