@@ -56,8 +56,11 @@ export const runSession = () => async (req: Request, res: Response) => {
         const job = await enqueueSessionJob(jobData);
 
         res.status(200).json({
-
+            jobId : job.id,
+            status : "queued"
         });
+        console.log(`Enqueued job ${job.id} for session ${sessionId} with jobData:`, jobData);
+
     } catch (error) {
         res.status(500).json({ message: 'Error starting session', error });
     }

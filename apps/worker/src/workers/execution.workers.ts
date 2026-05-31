@@ -2,7 +2,7 @@ import { Job, tryCatch, Worker } from "bullmq";
 import dotenv from "dotenv";
 import Docker from "dockerode";
 dotenv.config();
-import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../../../../packages/types/index.ts';
+import type { ExecutionJob, JobStatus, ExecutionResult, AddExecutionJobData } from '../../../../packages/types/index.ts';
 import { redisConfig, createRedisClient } from '../../../../packages/config/redis.config.ts';
 import fs from "fs";
 import path from "path";
