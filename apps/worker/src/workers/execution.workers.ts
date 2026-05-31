@@ -9,10 +9,7 @@ import path from "path";
 import { PassThrough } from "stream";
 
 const redis = createRedisClient();
-const scratchDir = path.join('/home/vedant/', '.cee-scratch');
-if (!fs.existsSync(scratchDir)) {
-    fs.mkdirSync(scratchDir, { recursive: true });
-}
+const scratchDir = process.env.SCRATCH_DIR || "/tmp";
 
 const docker = new Docker();
 const worker = new Worker('execution', async (job: Job) => {
@@ -115,6 +112,11 @@ const worker = new Worker('execution', async (job: Job) => {
 
         if (!executionResult.success) {
             throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);
+        }
+
+        if(executionResult.exitCode === 137){
+            executionResult.logs += "Container was killed due to timeout\n";
+            console.error("Container was killed due to timeout");
         }
 
         await redis.publish(`job:${job.id}`, JSON.stringify({
