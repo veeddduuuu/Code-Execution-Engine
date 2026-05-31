@@ -1,4 +1,5 @@
 import "./workers/execution.workers";
+import "./workers/sessions.worker";
 import express from 'express';
 import { executionQueue } from "../../../packages/queues/index.ts";
 import {WebSocketServer} from 'ws';

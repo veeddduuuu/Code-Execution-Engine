@@ -1,13 +1,13 @@
 import { Job, Queue, QueueEvents } from 'bullmq';
 import dotenv from 'dotenv';
 dotenv.config();
-import type { ExecutionJob, JobStatus, ExecutionResult, AddJobData } from '../types/index';
+import type { ExecutionJob, JobStatus, ExecutionResult, AddExecutionJobData, AddSessionJobData } from '../types/index';
 import { redisConfig } from '../config/redis.config';
 
 export const executionQueue = new Queue('execution', { connection: redisConfig });
 export const sessionQueue = new Queue('session', { connection: redisConfig });
 
-export const addExecutionJobs = async (jobData: AddJobData): Promise<Job> => {
+export const addExecutionJobs = async (jobData: AddExecutionJobData): Promise<Job> => {
     //d efault job options backoff and   attempts
     const job = await executionQueue.add('executeCode', jobData, {
         backoff: {
@@ -22,7 +22,7 @@ export const addExecutionJobs = async (jobData: AddJobData): Promise<Job> => {
     return job;
 };
 
-export const addSessionJobs = async(jobData: AddJobData): Promise<Job> => {
+export const addSessionJobs = async(jobData: AddSessionJobData): Promise<Job> => {
     const job = await sessionQueue.add('runSession', jobData, {
         backoff: {
             type: 'exponential',

@@ -1,8 +1,8 @@
-import {Request, Response} from 'express';
+import { Request, Response } from 'express';
 import Docker from "dockerode";
-import {randomUUID} from 'crypto';
+import { randomUUID } from 'crypto';
 import { redis } from '../../../../packages/config/redis.config';
-import { AddSessionJobData, Session } from '../../../../packages/types/index';
+import { Session } from '../../../../packages/types/index';
 import { enqueueSessionJob } from '../services/sessions.services';
 
 const docker = new Docker();
@@ -13,7 +13,7 @@ export const createSession = () => async (req: Request, res: Response) => {
     try {
         const sessionId = randomUUID();
         const container = await docker.createContainer({
-            Image: "node:22-alpine",
+            Image: "ubuntu:latest",
             Cmd: ["sleep", "infinity"],
             Labels: {
                 "managed-by": "cee",
@@ -28,11 +28,12 @@ export const createSession = () => async (req: Request, res: Response) => {
             status: "active",
             createdAt: Date.now().toString(),
         });
-        res.status(201).json({ 
+        res.status(201).json({
             sessionId,
             containerId,
             status: "active",
         });
+        console.log(`Created session ${sessionId} with container ${containerId}`);
     } catch (error) {
         res.status(500).json({ message: 'Error creating session', error });
     }
@@ -42,22 +43,24 @@ export const createSession = () => async (req: Request, res: Response) => {
 
 export const runSession = () => async (req: Request, res: Response) => {
     try {
-        const sessionId = req.params.id;
+        const sessionId = req.params.id as string;
+        if (!req.body.command || typeof req.body.command !== 'string') {
+            return res.status(400).json({ message: 'command is required' });
+        }
         const sessionData = await redis.hgetall(`session:${sessionId}`);
         if (!sessionData || Object.keys(sessionData).length === 0) {
             return res.status(404).json({ message: 'Session not found' });
         }
-        const jobData : AddSessionJobData = {
+        const jobData = {
             sessionId,
-            code: req.body.code,
-            language : req.body.language
-        };
+            command: req.body.command as string,
+        }
 
         const job = await enqueueSessionJob(jobData);
 
         res.status(200).json({
-            jobId : job.id,
-            status : "queued"
+            jobId: job.id,
+            status: "queued"
         });
         console.log(`Enqueued job ${job.id} for session ${sessionId} with jobData:`, jobData);
 
@@ -66,11 +69,11 @@ export const runSession = () => async (req: Request, res: Response) => {
     }
 };
 
-//getSessions
+//getSession
 
-export const getSessions = () => async (req: Request, res: Response) => {
+export const getSession = () => async (req: Request, res: Response) => {
     try {
-        const sessionId = req.params.id;
+        const sessionId = req.params.id as string;
         const sessionData = await redis.hgetall(`session:${sessionId}`);
         if (!sessionData || Object.keys(sessionData).length === 0) {
             return res.status(404).json({ message: 'Session not found' });
@@ -91,7 +94,7 @@ export const getSessions = () => async (req: Request, res: Response) => {
 
 export const stopSession = () => async (req: Request, res: Response) => {
     try {
-        const sessionId = req.params.id;
+        const sessionId = req.params.id as string;
         const containerId = await redis.hget(`session:${sessionId}`, 'containerId');
         if (!containerId) {
             return res.status(404).json({ message: 'Session not found' });
@@ -99,7 +102,7 @@ export const stopSession = () => async (req: Request, res: Response) => {
         const container = docker.getContainer(containerId);
         await container.stop();
         await container.remove();
-        await redis.hset(`session:${sessionId}`, {status: 'stopped'});
+        await redis.hset(`session:${sessionId}`, { status: 'stopped' });
         const session: Session = {
             sessionId,
             containerId,

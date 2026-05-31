@@ -17,7 +17,7 @@ export interface ExecutionJob extends Job {
     error?: string;
 }
 
-export interface ExecutionJobResponse{
+export interface ExecutionJobResponse {
     jobId: string;
     status: JobStatus;
     result: ExecutionResult | null;
@@ -34,13 +34,12 @@ export interface ExtendedWebSocket extends WebSocket {
 }
 
 export type AddSessionJobData = {
-    sessionId: string | string[];
-    code: string;
-    language: 'javascript';
+    sessionId: string;
+    command: string;
 }
 
 export interface Session {
-    sessionId: string | string[];
+    sessionId: string;
     containerId: string;
     status: 'created' | 'running' | 'stopped';
     createdAt?: number;

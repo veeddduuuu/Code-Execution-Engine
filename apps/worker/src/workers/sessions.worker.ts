@@ -5,10 +5,10 @@ import { PassThrough } from 'node:stream';
 
 const docker = new Docker();
 
-const sessionsWorker = new Worker('sessions', async (job) => {
+export const sessionsWorker = new Worker('session', async (job) => {
     const sessionId = job.data.sessionId;
     const containerId = await redis.hget(`session:${sessionId}`, 'containerId');
-    if(!containerId){
+    if (!containerId) {
         throw new Error(`No container found for session ${sessionId}`);
     }
     const container = docker.getContainer(containerId);
@@ -27,6 +27,8 @@ const sessionsWorker = new Worker('sessions', async (job) => {
 
     container.modem.demuxStream(muxedStream, stdoutStream, stderrStream);
 
+    muxedStream.on('end', () => { stdoutStream.end(); stderrStream.end(); });
+
     stdoutStream.on("data", async (chunk) => {
         console.log(`Container stdout: ${chunk.toString()}`);
         finalLogs += chunk.toString();
@@ -37,7 +39,9 @@ const sessionsWorker = new Worker('sessions', async (job) => {
             ts: Date.now()
         };
         await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
+        console.log(`Publishing log entry to channel job:${job.id}`);
         await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
+        console.log(`Pushed log entry to list job:${job.id}:logs`);
         await redis.ltrim(`job:${job.id}:logs`, 0, 99);
         await redis.expire(`job:${job.id}:logs`, 60 * 60 * 24);
     });
@@ -51,7 +55,7 @@ const sessionsWorker = new Worker('sessions', async (job) => {
             data: chunk.toString(),
             ts: Date.now()
         }
-
+        console.log(`Publishing log entry to channel job:${job.id}`);
         await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
         await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
         await redis.ltrim(`job:${job.id}:logs`, 0, 99);
@@ -59,10 +63,16 @@ const sessionsWorker = new Worker('sessions', async (job) => {
     });
 
 
-    await new Promise((resolve, reject) => {
-        muxedStream.on('end', resolve);
-        muxedStream.on('error', reject);
-    });
+    await Promise.all([
+        new Promise<void>((resolve, reject) => {
+            stdoutStream.on('end', resolve);
+            stdoutStream.on('error', reject);
+        }),
+        new Promise<void>((resolve, reject) => {
+            stderrStream.on('end', resolve);
+            stderrStream.on('error', reject);
+        })
+    ])
 
     const result = await exec.inspect();
     const exitCode = result.ExitCode;
@@ -73,15 +83,17 @@ const sessionsWorker = new Worker('sessions', async (job) => {
         ranAt: Date.now(),
         logs: finalLogs,
     };
+    console.log(`Execution result for job ${job.id}:`, executionResult);
 
     await redis.publish(`job:${job.id}`, JSON.stringify({
         type: 'DONE',
         exitCode: exitCode,
+        logs: finalLogs,
     }));
-
+    console.log(`Published DONE message to channel job:${job.id}`);
     return executionResult;
 },
-{
-    connection: redisConfig,
-    concurrency: 3,
-});
+    {
+        connection: redisConfig,
+        concurrency: 3,
+    });
