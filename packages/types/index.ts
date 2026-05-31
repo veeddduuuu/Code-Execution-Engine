@@ -24,11 +24,24 @@ export interface ExecutionJobResponse{
     error?: string;
 };
 
-export type AddJobData = {
+export type AddExecutionJobData = {
     code: string;
     language: 'javascript';
 }
 
 export interface ExtendedWebSocket extends WebSocket {
     isAlive: boolean
+}
+
+export type AddSessionJobData = {
+    sessionId: string | string[];
+    code: string;
+    language: 'javascript';
+}
+
+export interface Session {
+    sessionId: string | string[];
+    containerId: string;
+    status: 'created' | 'running' | 'stopped';
+    createdAt?: number;
 }

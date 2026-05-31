@@ -1,7 +1,7 @@
-import { addJobs } from '../../../../packages/queues/index';
-import type { AddJobData } from '../../../../packages/types';
+import { addExecutionJobs } from '../../../../packages/queues/index';
+import type { AddExecutionJobData } from '../../../../packages/types';
 
-export async function enqueueExecutionJob(jobData: AddJobData) {
-	const job = await addJobs(jobData);
+export async function enqueueExecutionJob(jobData: AddExecutionJobData) {
+	const job = await addExecutionJobs(jobData);
 	return job;
 }
