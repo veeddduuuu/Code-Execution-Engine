@@ -33,14 +33,15 @@ export interface ExtendedWebSocket extends WebSocket {
     isAlive: boolean
 }
 
-export type AddSessionJobData = {
-    sessionId: string;
-    command: string;
-}
-
 export interface Session {
     sessionId: string;
     containerId: string;
     status: 'created' | 'running' | 'stopped';
     createdAt?: number;
+    activeExecutions: number;
+}
+
+export interface SessionJobData {
+    sessionId: string;
+    action : 'create' | 'run' | 'stop';
 }
