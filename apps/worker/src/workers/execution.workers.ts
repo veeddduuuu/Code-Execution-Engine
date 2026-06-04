@@ -168,22 +168,17 @@ const worker = new Worker('execution', async (job: Job) => {
 worker.on('completed', async (job: Job, result: ExecutionResult) => {
     const jobId = job.data.jobId;
     console.log(`Job ${jobId} completed with result: ${JSON.stringify(result)}`);
-    const updateResultQuery = 'UPDATE jobs SET status = $1, output = $2, completed_at = $3 WHERE id = $4';
-    await pool.query(updateResultQuery, ['completed', result.logs, new Date(), jobId]);
+    const updateResultQuery = 'UPDATE jobs SET status = $1, output = $2, completed_at = $3, exit_code = $4 WHERE id = $5';
+    await pool.query(updateResultQuery, ['completed', result.logs, new Date(), result.exitCode, jobId]);
 });
 
 worker.on('failed', async (job: Job | undefined, err: Error) => {
     if(!job) return;
     const jobId = job.data.jobId;
-    const updateFailedQuery = 'UPDATE jobs SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4';
-    await pool.query(updateFailedQuery, ['failed', err.message, new Date(), jobId]);
     const maxAttempts = job.opts.attempts ?? 1;
-    if(job.attemptsMade >= maxAttempts) {
-        console.log('Retries exhausted');
-        await pool.query(updateFailedQuery, ['dead', err.message, new Date(), jobId]);
-    } else {
-        console.log(`retrying job ${jobId}, attempt ${job.attemptsMade} of ${maxAttempts}`);
-    }
+    const status =  job.attemptsMade >= maxAttempts ? 'dead' as JobStatus : 'failed' as JobStatus;
+    const updateFailedQuery = 'UPDATE jobs SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4';
+    await pool.query(updateFailedQuery, [status, err.message, new Date(), jobId]);
 });
 
 export default worker;

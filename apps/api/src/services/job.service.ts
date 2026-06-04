@@ -18,7 +18,10 @@ export const getAllJobs = async () => {
 
 export const getExecutionJobById = async (jobId: string) => {
     const job = await pool.query('SELECT id, status, output, error_message FROM jobs WHERE id = $1', [jobId]);
-
+    if(job.rows.length === 0) {
+        throw new Error('Job not found');
+        console.log(`Job with id ${jobId} not found in database`);
+    }
     return {
         jobId : job.rows[0].id,
         status : job.rows[0].status as JobStatus,

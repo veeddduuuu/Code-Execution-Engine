@@ -5,8 +5,6 @@ import { executionQueue } from "../../../packages/queues/index";
 const app = express();
 app.use(express.json());
 
-const ws = new WebSocket('ws://localhost:3000/ws');
-
 app.get('/health', async (req, res) => {
     const activeJobs = await executionQueue.getActiveCount();
     const queueDepth = await executionQueue.getJobCounts();
@@ -14,7 +12,7 @@ app.get('/health', async (req, res) => {
     // const waitingJobs = await executionQueue.getWaitingCount();
     // const completedJobs = await executionQueue.getCompletedCount();
     // const failedJobs = await executionQueue.getFailedCount();
-    
+
     const uptime = process.uptime();
     res.status(200).json({ activeJobs, queueDepth, workers, uptime });
 });
