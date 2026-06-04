@@ -1,61 +1,28 @@
 import { Job } from 'bullmq/dist/esm/classes/job';
 import { executionQueue } from '../../../../packages/queues/index';
 import type { ExecutionJobResponse, ExecutionResult, JobStatus } from '../../../../packages/types/index';
- 
-const jobStatusMap = (state : string | undefined, attemptsMade: number, maxAttempts: number) => {
-    let status : JobStatus;
-    switch(state){
-        case 'waiting':
-        case 'delayed':
-            status = 'pending';
-            break;
-        case 'active':
-            status = 'running';
-            break;
-        case 'completed':
-            status = 'completed';
-            break;
-        case 'failed':
-            status = attemptsMade >= maxAttempts ? 'dead' : 'failed';
-            break;
-        default:
-            status = 'pending';
-    }
-    return status;
-} 
+import {pool} from '../../../../packages/db/pool';
 
 export const getAllJobs = async () => {
-    const jobs  = await executionQueue.getJobs();
-    const result : ExecutionJobResponse[] = [];
-    for (const job of jobs) {
-        const state = await job.getState();
-        const status = jobStatusMap(state, job.attemptsMade, job.opts.attempts??1);
-        if(!job.id){
-            continue;
-        }
-        result.push({
-            jobId: job.id,
-            status,
-            result: (job.returnvalue as ExecutionResult) || null,
-            error: job.failedReason || undefined,
-        });
-    }
-    return result;
+    const getAllJobsQuery = 'SELECT id, status, output, error_message, created_at FROM jobs ORDER BY created_at DESC LIMIT 100';
+    const { rows } = await pool.query(getAllJobsQuery);
+   
+    return rows.map(row => ({
+        jobId: row.id,
+        status : row.status,
+        result: row.output || null,
+        error: row.error_message || undefined,
+        createdAt: row.created_at
+    }));
 }
 
 export const getExecutionJobById = async (jobId: string) => {
-    const job = await executionQueue.getJob(jobId);
-    const state = await job?.getState();
-
-    if (!job) {
-        return null;
-    }
-    const status = jobStatusMap(state, job.attemptsMade, job.opts.attempts ?? 1);
+    const job = await pool.query('SELECT id, status, output, error_message FROM jobs WHERE id = $1', [jobId]);
 
     return {
-        jobId,
-        status,
-        result: (job.returnvalue as ExecutionResult) || null,
-        error: job.failedReason || undefined,
+        jobId : job.rows[0].id,
+        status : job.rows[0].status as JobStatus,
+        result: job.rows[0].output || null,
+        error: job.rows[0].error_message || undefined,
     };
 };

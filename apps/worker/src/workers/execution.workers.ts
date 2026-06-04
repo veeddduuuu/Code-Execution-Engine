@@ -7,6 +7,7 @@ import { redisConfig, createRedisClient } from '../../../../packages/config/redi
 import fs from "fs";
 import path from "path";
 import { PassThrough } from "stream";
+import { pool } from "../../../../packages/db/pool";
 
 const redis = createRedisClient();
 const scratchDir = process.env.SCRATCH_DIR || "/tmp";
@@ -16,9 +17,14 @@ const worker = new Worker('execution', async (job: Job) => {
     console.log("worker hit")
     console.log(job.data);
     console.log(job.data.code);
+    const jobId = job.data.jobId;
+    
+    const updateQuery = 'UPDATE jobs SET status = $1, started_at = $2 WHERE id = $3';
+    await pool.query(updateQuery, ['running', new Date(), jobId]);
+
     let container: Docker.Container | undefined = undefined;
     let timeoutHandle: NodeJS.Timeout | undefined = undefined;
-    const hostFilePath = path.join(scratchDir, `${job.id}.js`);
+    const hostFilePath = path.join(scratchDir, `${jobId}.js`);
     try {
         fs.writeFileSync(hostFilePath, job.data.code, { encoding: 'utf-8', mode: 0o644 });
         container = await docker.createContainer({
@@ -54,10 +60,10 @@ const worker = new Worker('execution', async (job: Job) => {
                 data: chunk.toString(),
                 ts: Date.now()
             };
-            await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
-            await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
-            await redis.ltrim(`job:${job.id}:logs`, 0, 99);
-            await redis.expire(`job:${job.id}:logs`, 60 * 60 * 24);
+            await redis.publish(`job:${jobId}`, JSON.stringify(logEntry));
+            await redis.lpush(`job:${jobId}:logs`, JSON.stringify(logEntry));
+            await redis.ltrim(`job:${jobId}:logs`, 0, 99);
+            await redis.expire(`job:${jobId}:logs`, 60 * 60 * 24);
         });
 
         stderrStream.on("data", async (chunk) => {
@@ -70,10 +76,10 @@ const worker = new Worker('execution', async (job: Job) => {
                 ts: Date.now()
             }
 
-            await redis.publish(`job:${job.id}`, JSON.stringify(logEntry));
-            await redis.lpush(`job:${job.id}:logs`, JSON.stringify(logEntry));
-            await redis.ltrim(`job:${job.id}:logs`, 0, 99);
-            await redis.expire(`job:${job.id}:logs`, 60 * 60 * 24);
+            await redis.publish(`job:${jobId}`, JSON.stringify(logEntry));
+            await redis.lpush(`job:${jobId}:logs`, JSON.stringify(logEntry));
+            await redis.ltrim(`job:${jobId}:logs`, 0, 99);
+            await redis.expire(`job:${jobId}:logs`, 60 * 60 * 24);
         });
 
         if (!container) {
@@ -119,7 +125,7 @@ const worker = new Worker('execution', async (job: Job) => {
             console.error("Container was killed due to timeout");
         }
 
-        await redis.publish(`job:${job.id}`, JSON.stringify({
+        await redis.publish(`job:${jobId}`, JSON.stringify({
             type: 'DONE',
             success: executionResult.success,
             exitCode: executionResult.exitCode,
@@ -129,7 +135,6 @@ const worker = new Worker('execution', async (job: Job) => {
         return executionResult;
 
     } catch (error) {
-
         console.error("Execution worker error:", error);
         throw error;
 
@@ -160,12 +165,25 @@ const worker = new Worker('execution', async (job: Job) => {
         concurrency: 3
     });
 
-worker.on('completed', (job: Job, result: ExecutionResult) => {
-    console.log(`Job ${job.id} completed with result: ${JSON.stringify(result)}`);
+worker.on('completed', async (job: Job, result: ExecutionResult) => {
+    const jobId = job.data.jobId;
+    console.log(`Job ${jobId} completed with result: ${JSON.stringify(result)}`);
+    const updateResultQuery = 'UPDATE jobs SET status = $1, output = $2, completed_at = $3 WHERE id = $4';
+    await pool.query(updateResultQuery, ['completed', result.logs, new Date(), jobId]);
 });
 
-worker.on('failed', (job: Job | undefined, err: Error) => {
-    console.error(`Job ${job?.id ?? 'unknown'} failed with error: ${err.message}`);
+worker.on('failed', async (job: Job | undefined, err: Error) => {
+    if(!job) return;
+    const jobId = job.data.jobId;
+    const updateFailedQuery = 'UPDATE jobs SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4';
+    await pool.query(updateFailedQuery, ['failed', err.message, new Date(), jobId]);
+    const maxAttempts = job.opts.attempts ?? 1;
+    if(job.attemptsMade >= maxAttempts) {
+        console.log('Retries exhausted');
+        await pool.query(updateFailedQuery, ['dead', err.message, new Date(), jobId]);
+    } else {
+        console.log(`retrying job ${jobId}, attempt ${job.attemptsMade} of ${maxAttempts}`);
+    }
 });
 
 export default worker;

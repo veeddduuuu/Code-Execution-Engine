@@ -25,6 +25,7 @@ export interface ExecutionJobResponse {
 };
 
 export type AddExecutionJobData = {
+    jobId: string;
     code: string;
     language: 'javascript';
 }

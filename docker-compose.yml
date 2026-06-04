@@ -42,3 +42,13 @@ services:
       - REDIS_PORT=6379
       - EXECUTION_TIMEOUT_MS=30000
       - SCRATCH_DIR=/tmp
+
+    postgres:
+      image: postgres:16-alpine
+      environment:
+        .env:
+          POSTGRES_USER: ${POSTGRES_USER}
+          POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+          POSTGRES_DB: ${POSTGRES_DB}
+      ports:
+        - "5432:5432"
