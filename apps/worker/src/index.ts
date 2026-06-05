@@ -17,6 +17,6 @@ app.get('/health', async (req, res) => {
     res.status(200).json({ activeJobs, queueDepth, workers, uptime });
 });
 
-app.listen(3001, () => {
+app.listen(3001, () => {    
     console.log("Worker is running on port 3001");
 });

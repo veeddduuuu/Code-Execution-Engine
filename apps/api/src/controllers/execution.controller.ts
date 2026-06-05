@@ -5,17 +5,45 @@ import { pool } from '../../../../packages/db/pool';
 import crypto from 'crypto';
 
 export const executeCode = async(req: Request, res: Response) => {
-	const { code, language } = req.body;
+	const { idempotencyKey, code, language } = req.body;
+	const keyHash = idempotencyKey?crypto.createHash('sha256').update(idempotencyKey).digest('hex'):null;
+
 	const jobId = crypto.randomUUID();
-	const insertQuery = 'INSERT INTO jobs (id, code, language, status) VALUES ($1, $2, $3, $4) RETURNING id';
-	const values = [jobId, code, language, 'pending'];
-	await pool.query(insertQuery, values);
+	const jobValues = [jobId, code, language, 'pending'];
+	const idempotencyValues = [keyHash, jobId];
+
+	if(idempotencyKey){
+		const lookupResult = await pool.query(`SELECT job_id FROM idempotency WHERE key = $1 AND created_at > NOW() - INTERVAL '24 hours'`, [keyHash]);
+		if(lookupResult.rows.length > 0){
+			const existingJobId = lookupResult.rows[0].job_id;
+			const status = await pool.query('SELECT status FROM jobs WHERE id = $1', [existingJobId]);
+			return res.status(200).json({
+				jobId: existingJobId,
+				status: status.rows[0].status
+			});
+		}
+	}
+
+	const client = await pool.connect();
+	try{
+		await client.query("Begin");
+		await client.query('INSERT INTO jobs (id, code, language, status) VALUES ($1, $2, $3, $4)', jobValues);
+		if(keyHash) await client.query('INSERT INTO idempotency (key, job_id) VALUES ($1, $2)', idempotencyValues);
+		await client.query("Commit");
+	}catch(error){
+		await client.query("Rollback");
+		console.error('Error starting transaction:', error);
+		return res.status(500).json({ message: 'Failed to write to database' });
+	}finally{
+		client.release();
+	}
 	
 	try {		
 		const job = await addExecutionJobs({
 			jobId: jobId,
 			code,
 			language
+
 		});
 		return res.status(202).json({
 			success: true,

@@ -26,6 +26,7 @@ export interface ExecutionJobResponse {
 
 export type AddExecutionJobData = {
     jobId: string;
+    idempotencyKey?: string;
     code: string;
     language: 'javascript';
 }

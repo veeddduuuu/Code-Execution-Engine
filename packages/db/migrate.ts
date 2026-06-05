@@ -1,9 +1,9 @@
 import fs from "fs";
-import {pool} from "./pool";
+import { pool } from "./pool";
 import dotenv from "dotenv";
 dotenv.config();
 
-const sql = fs.readFileSync('./packages/db/migrations/002_remove_attempt_columns.sql', 'utf-8');
+const sql = fs.readFileSync('./packages/db/migrations/003_create_idempotency_table.sql', 'utf-8');
 
 export const runMigrations = async () => {
     try {
