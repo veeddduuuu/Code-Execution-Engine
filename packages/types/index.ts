@@ -1,7 +1,7 @@
 import { Job } from 'bullmq';
 import { WebSocket } from 'ws';
 
-export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'dead';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'dead';
 
 export type ExecutionResult = {
     success: boolean;

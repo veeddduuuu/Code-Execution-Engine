@@ -11,8 +11,26 @@ import { pool } from "../../../../packages/db/pool";
 
 const redis = createRedisClient();
 const scratchDir = process.env.SCRATCH_DIR || "/tmp";
+const activeExecutions = new Map<string, Docker.Container>();
 
 const docker = new Docker();
+const cancelSubscriber = createRedisClient();
+await cancelSubscriber.psubscribe(`job:*:control`);
+
+cancelSubscriber.on('pmessage', async(pattern, channel, message)=>{
+    const jobId = channel.split(':')[1];
+    const { type } = JSON.parse(message);
+    if (type === 'CANCEL') {
+        const container = activeExecutions.get(jobId);
+        if (container) {
+            await container.kill();
+            await pool.query(`UPDATE jobs SET status = 'cancelled' WHERE id = $1`, [jobId]);
+            console.log(`Job ${jobId} was cancelled and container was killed`);
+        }
+        else return;
+    }
+});
+
 const worker = new Worker('execution', async (job: Job) => {
     console.log("worker hit")
     console.log(job.data);
@@ -41,6 +59,8 @@ const worker = new Worker('execution', async (job: Job) => {
                 Binds: [`${hostFilePath}:/app/code.js:ro`],
             }
         });
+
+        activeExecutions.set(jobId, container);
 
         const muxedStream = await container.attach({ stream: true, stdout: true, stderr: true });
 
@@ -139,6 +159,8 @@ const worker = new Worker('execution', async (job: Job) => {
         throw error;
 
     } finally {
+
+        activeExecutions.delete(jobId);
 
         if (container) {
             try {
