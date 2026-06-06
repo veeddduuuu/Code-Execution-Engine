@@ -24,22 +24,22 @@ async function initCancelSubscriber() {
 initCancelSubscriber();
 
 
-cancelSubscriber.on('pmessage', async(pattern, channel, message)=>{
+cancelSubscriber.on('pmessage', async (pattern, channel, message) => {
     const jobId = channel.split(':')[1];
     const { type } = JSON.parse(message);
     if (type === 'CANCEL') {
         cancelledJobs.set(jobId, true);
         const container = activeExecutions.get(jobId);
         if (container) {
-            try{
+            try {
                 await container.kill();
-            }catch(dockererr){
+            } catch (dockererr) {
                 console.error(`Failed to kill container for cancelled job ${jobId}:`, dockererr);
             }
             redis.publish(`job:${jobId}`, JSON.stringify({
-            type: 'CANCELLED',
-            message: 'Job was cancelled by user',
-            ts: Date.now()
+                type: 'CANCELLED',
+                message: 'Job was cancelled by user',
+                ts: Date.now()
             }));
             // await pool.query(`UPDATE jobs SET status = 'cancelled' WHERE id = $1`, [jobId]);
             console.log(`Job ${jobId} was cancelled and container was killed`);
@@ -196,7 +196,7 @@ const worker = new Worker('execution', async (job: Job) => {
             throw new Error(`Execution failed with exit code ${executionResult.exitCode}`);
         }
 
-        if(executionResult.exitCode === 137){
+        if (executionResult.exitCode === 137) {
             executionResult.logs += "Container was killed due to timeout\n";
             console.error("Container was killed due to timeout");
         }
@@ -253,17 +253,17 @@ worker.on('completed', async (job: Job, result: ExecutionResult) => {
 });
 
 worker.on('failed', async (job: Job | undefined, err: Error) => {
-    if(!job) return;
+    if (!job) return;
     const jobId = job.data.jobId;
-    if(cancelledJobs.has(jobId)||err.message === "JOB_CANCELLED"){ 
+    if (cancelledJobs.has(jobId) || err.message === "JOB_CANCELLED") {
         const updateFailedQuery = 'UPDATE jobs SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4';
         await pool.query(updateFailedQuery, ['cancelled', 'Job was cancelled', new Date(), jobId]);
         cancelledJobs.delete(jobId);
         console.log(`Job ${jobId} was cancelled and marked as such in the database`);
     }
-    else{
+    else {
         const maxAttempts = job.opts.attempts ?? 1;
-        const status =  job.attemptsMade >= maxAttempts ? 'dead' as JobStatus : 'failed' as JobStatus;
+        const status = job.attemptsMade >= maxAttempts ? 'dead' as JobStatus : 'failed' as JobStatus;
         const updateFailedQuery = 'UPDATE jobs SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4';
         await pool.query(updateFailedQuery, [status, err.message, new Date(), jobId])
     }

@@ -1,12 +1,30 @@
 import { WebSocketServer } from 'ws';
 import http from 'http';
-import app from '../app';
 import { createRedisClient } from '../../../../packages/config/redis.config';
 import { ExtendedWebSocket } from '../../../../packages/types/index';
 import { subscribeClient, unsubscribeClient, broadcastToChannels, jobSubscrptions } from './subscription.manager';
 
 
 const redis = createRedisClient();
+const subscriberRedis = createRedisClient();
+
+const subscribedChannels = new Set<string>();
+
+async function ensureChannelSubscription(channel: string) {
+	if (subscribedChannels.has(channel)) {
+		return;
+	}
+	await subscriberRedis.subscribe(channel);
+	subscribedChannels.add(channel);
+}
+
+async function cleanupChannelSubscription(channel: string) {
+	if (jobSubscrptions.has(channel) || !subscribedChannels.has(channel)) {
+		return;
+	}
+	await subscriberRedis.unsubscribe(channel);
+	subscribedChannels.delete(channel);
+}
 
 export function createWebSocketServer(server : http.Server){
 	const wss = new WebSocketServer({ server, path: '/ws' });
@@ -27,11 +45,19 @@ export function createWebSocketServer(server : http.Server){
 					}
 					console.log(`Sent last 100 logs for jobId ${jobId} to client`);
 					subscribeClient(jobId, ws);
-					await redis.subscribe(`job:${jobId}`, (err, count) => {
-						if (err) {
-							console.error('Failed to subscribe to Redis channel:', err);
-						}
-					});
+					await ensureChannelSubscription(`job:${jobId}`);
+				}
+				else if((type === 'CANCELLED' || type === 'UNSUBSCRIBE') && jobId){
+					console.log(`Client unsubscribed from jobId ${jobId}`);
+					ws.send(JSON.stringify({
+						type: 'UNSUBSCRIBED',
+						message: `Unsubscribed from jobId ${jobId}`,
+						ts: Date.now()
+					}));
+					const affectedChannels = unsubscribeClient(ws);
+					for (const channel of affectedChannels) {
+						await cleanupChannelSubscription(channel);
+					}
 				}
 			}
 			catch(error){
@@ -44,7 +70,10 @@ export function createWebSocketServer(server : http.Server){
 		});
 
 		ws.on('close', () => {
-			unsubscribeClient(ws);
+			const affectedChannels = unsubscribeClient(ws);
+			for (const channel of affectedChannels) {
+				void cleanupChannelSubscription(channel);
+			}
 			console.log('WS client disconnected');
 		});
 	});
@@ -62,15 +91,16 @@ export function createWebSocketServer(server : http.Server){
 		});
 	}, 30000);
 
-	redis.on('message', async (channel, message) => {
+	subscriberRedis.on('message', async (channel, message) => {
     	console.log(`Received message from Redis channel ${channel}: ${message}`);
 		broadcastToChannels(channel, message);
 		try{
 			const parsedMessage = JSON.parse(message);
-			if(parsedMessage.type === 'DONE'){
+			if(parsedMessage.type === 'DONE' || parsedMessage.type === 'CANCELLED'){
 				console.log(`Job ${channel} completed with result: ${message}`);
-				await redis.unsubscribe(channel);
+				await subscriberRedis.unsubscribe(channel);
 				console.log(`Unsubscribed from Redis channel ${channel}`);
+				subscribedChannels.delete(channel);
 				jobSubscrptions.delete(channel);
 				console.log(`Deleted job subscription for channel ${channel}`);
 			}
@@ -82,9 +112,6 @@ export function createWebSocketServer(server : http.Server){
 
 	return wss;
 }
-
-
-
 
 
 

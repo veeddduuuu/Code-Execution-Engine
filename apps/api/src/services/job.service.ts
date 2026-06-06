@@ -50,6 +50,13 @@ export const cancelExecutionJob = async (jobId: string)=>{
         };
     }
     else if(status === 'running'){
+        const cancelledJob = await pool.query(
+            `UPDATE jobs SET status = 'cancelled', error_message = 'Job cancellation requested' WHERE id = $1 AND status = 'running' RETURNING id`,
+            [jobId]
+        );
+        if (cancelledJob.rows.length === 0) {
+            return;
+        }
         const cancelPublisher = createRedisClient();
         await cancelPublisher.publish(`job:${jobId}:control`, JSON.stringify({ type: 'CANCEL' }));
         await cancelPublisher.quit();

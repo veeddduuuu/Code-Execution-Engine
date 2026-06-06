@@ -12,15 +12,18 @@ export const subscribeClient = (jobId: string, ws: WebSocket) => {
 }
 
 export const unsubscribeClient = (ws: WebSocket) => {
+	const affectedChannels: string[] = [];
 	for (const [channel, clients] of jobSubscrptions.entries()) {
 		if (clients.has(ws)) {
 			clients.delete(ws);
+			affectedChannels.push(channel);
 			if (clients.size === 0) {
 				jobSubscrptions.delete(channel);
 			}
 		}
 	}
 	console.log(`Client unsubscribed from all channels`);
+	return affectedChannels;
 }
 
 export function broadcastToChannels(channel: string, message: string) {
