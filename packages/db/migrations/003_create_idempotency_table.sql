@@ -1,6 +1,5 @@
 CREATE TABLE IF NOT EXISTS idempotency (
     key varchar(64) PRIMARY KEY,
-    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+    job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)
-
+);
