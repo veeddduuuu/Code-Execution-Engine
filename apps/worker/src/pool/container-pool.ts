@@ -101,6 +101,26 @@ export const healthCheck = async () => {
     }
 }
 
-// export const cleanupOrphanedContainers = async () => {
+export const cleanupOrphanedContainers = async () => {
+    const containers = await docker.listContainers({
+        all: true,
+        filters: {
+            label: ["managed-by=code-execution-engine"]
+        }
+    });
 
-// }
+    for (const container of containers) {
+        try {
+            await docker
+                .getContainer(container.Id)
+                .remove({ force: true });
+        } catch (err) {
+            console.error(
+                `Failed to cleanup ${container.Id}`,
+                err
+            );
+        }
+    }
+
+    await redisClient.del("container_pool");
+}
