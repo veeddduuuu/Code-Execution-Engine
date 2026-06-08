@@ -1,8 +1,15 @@
+//Pool stored in Redis list pool:node:available, 
+// LPOP on acquire, 
+// replenish after use, 
+// health check every 30s, startup cleanup, 
+// labels on containers.
+
 import Docker from 'dockerode';
 import { createRedisClient } from '../../../../packages/config/redis.config';
 
 const redisClient = createRedisClient();
 const docker = new Docker();
+const POOL_SIZE = 5;
 
 const createContainer = async()=>{
     let container : Docker.Container | undefined = undefined;
@@ -15,22 +22,27 @@ const createContainer = async()=>{
                 NanoCpus: 500_000_000,
                 NetworkMode: "none",
                 AutoRemove: false,
-                //Binds: [`workpace`]
-        }
-    });
-    await container.start();
-    return container;
-    } catch (err) {
+                Binds: ['/tmp/cee:/workspace']
+            },
+            Labels: {
+                'managed-by': 'code-execution-engine',
+                'pool-id' : 'worker-pool',
+                'created-at': new Date().toISOString(),
+            }
+        }); 
+        await container.start();
+        return container;
+    } 
+    catch (err) {
         console.error('Error creating container:', err);
         throw err;
     }
 }
 
-const minPoolSize = 5;
 
 export const initialisePool = async () => {
   // Implementation for initialising the container pool
-    for(let i = 0; i < minPoolSize; i++) {
+    for(let i = 0; i < POOL_SIZE; i++) {
         const newContainer = await createContainer();
         await redisClient.rpush('container_pool', newContainer.id);
     }
@@ -43,6 +55,11 @@ export const acquireContainer = async () => {
     if (!containerId) {
         console.log('No available containers in the pool, creating a new one...');
         return await createContainer();
+    }
+    const remianing = await redisClient.llen('container_pool');
+    if(remianing < 2){
+        console.log(`Only ${remianing} containers left in the pool, replenishing...`);
+        replenishPool().catch(err => console.error('Error replenishing pool:', err));
     }
     return docker.getContainer(containerId);
 } 
@@ -64,9 +81,8 @@ export const releaseContainer = async (containerId: string) => {
 export const replenishPool = async () => {
     // Implementation for replenishing the pool with new containers if needed
     const poolSize = await redisClient.llen('container_pool');
-    const minPoolSize = 5;
-    if (poolSize < minPoolSize) {
-        for (let i = poolSize; i < minPoolSize; i++) {
+    if (poolSize < POOL_SIZE) {
+        for (let i = poolSize; i < POOL_SIZE; i++) {
             const newContainer = await createContainer();
             await redisClient.rpush('container_pool', newContainer.id);
         }
@@ -74,5 +90,17 @@ export const replenishPool = async () => {
 }
 
 export const healthCheck = async () => {
-    
+    const containerIds = await redisClient.lrange('container_pool', 0, -1);
+    for (const containerId of containerIds) {
+        const inspect = await docker.getContainer(containerId).inspect();
+        if(!inspect.State.Running){
+            await redisClient.lrem('container_pool', 0, containerId);
+            const replacementContainer  = await createContainer();
+            await redisClient.rpush('container-pool', replacementContainer.id);
+        }
+    }
 }
+
+// export const cleanupOrphanedContainers = async () => {
+
+// }

@@ -5,7 +5,7 @@ export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancel
 
 export type ExecutionResult = {
     success: boolean;
-    exitCode: number;
+    exitCode: number | null;
     ranAt: number;
     logs: string;
 };

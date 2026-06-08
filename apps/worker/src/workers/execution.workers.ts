@@ -8,9 +8,13 @@ import fs from "fs";
 import path from "path";
 import { PassThrough } from "stream";
 import { pool } from "../../../../packages/db/pool";
+import { acquireContainer, releaseContainer } from "../pool/container-pool";
 
 const redis = createRedisClient();
-const scratchDir = process.env.SCRATCH_DIR || "/tmp";
+const scratchDir = process.env.SCRATCH_DIR || "/tmp/cee";
+fs.mkdirSync(scratchDir, {
+    recursive: true
+}); 
 const activeExecutions = new Map<string, Docker.Container>();
 const cancelledJobs = new Map<string, boolean>();
 
@@ -23,6 +27,18 @@ async function initCancelSubscriber() {
 }
 initCancelSubscriber();
 
+async function throwIfCancelled(jobId: string, container?: Docker.Container) {
+    if (cancelledJobs.has(jobId)) {
+        if (container) {
+            try {
+                await container.kill();
+            } catch (dockererr) {
+                console.error(`Failed to kill container for cancelled job ${jobId}:`, dockererr);
+            }
+        }
+        throw new Error("JOB_CANCELLED");
+    }
+}
 
 cancelSubscriber.on('pmessage', async (pattern, channel, message) => {
     const jobId = channel.split(':')[1];
@@ -41,7 +57,6 @@ cancelSubscriber.on('pmessage', async (pattern, channel, message) => {
                 message: 'Job was cancelled by user',
                 ts: Date.now()
             }));
-            // await pool.query(`UPDATE jobs SET status = 'cancelled' WHERE id = $1`, [jobId]);
             console.log(`Job ${jobId} was cancelled and container was killed`);
         }
         else return;
@@ -77,44 +92,27 @@ const worker = new Worker('execution', async (job: Job) => {
         if (cancelledJobs.has(jobId)) {
             throw new Error("JOB_CANCELLED");
         }
-        container = await docker.createContainer({
-            Image: "node:20-alpine",
-            Cmd: ["node", "/app/code.js"],
-            AttachStdout: true,
-            AttachStderr: true,
-            Tty: false,
-            HostConfig: {
-                Memory: 1024 * 1024 * 128,
-                NanoCpus: 500_000_000,
-                NetworkMode: "none",
-                AutoRemove: false,
-                Binds: [`${hostFilePath}:/app/code.js:ro`],
-            }
-        });
-
-        if (cancelledJobs.has(jobId)) {
-            throw new Error("JOB_CANCELLED");
-        }
+        container = await acquireContainer();
 
         activeExecutions.set(jobId, container);
 
-        if (cancelledJobs.has(jobId)) {
-            try {
-                await container.kill();
-            } catch (dockererr) {
-                console.error(`Failed to kill container for cancelled job ${jobId}:`, dockererr);
-            }
-            throw new Error("JOB_CANCELLED");
-        }
+        const exec = await container.exec({
+            Cmd: ["node", `/workspace/${jobId}.js`],
+            AttachStdout: true,
+            AttachStderr: true,
+            Tty: false,
+        });
 
-        const muxedStream = await container.attach({ stream: true, stdout: true, stderr: true });
+        await throwIfCancelled(jobId, container);
+
+        const execStream = await exec.start({ hijack: true, stdin: false, Tty: false });
 
         const stdoutStream = new PassThrough();
         const stderrStream = new PassThrough();
 
         let finalLogs = "";
 
-        container.modem.demuxStream(muxedStream, stdoutStream, stderrStream);
+        container.modem.demuxStream(execStream, stdoutStream, stderrStream);
 
         stdoutStream.on("data", async (chunk) => {
             console.log(`Container stdout: ${chunk.toString()}`);
@@ -147,23 +145,18 @@ const worker = new Worker('execution', async (job: Job) => {
             await redis.expire(`job:${jobId}:logs`, 60 * 60 * 24);
         });
 
-        if (!container) {
-            throw new Error("Failed to create container");
-        }
+        await throwIfCancelled(jobId, container);
 
-        if (cancelledJobs.has(jobId)) {
-            try {
-                await container.kill();
-            } catch { }
-            throw new Error("JOB_CANCELLED");
-        }
-
-        await container.start();
-        const waitPromise = container.wait().finally(() => {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
+        const waitExec = async (exec: Docker.Exec) => {
+            while (true) {
+                const info = await exec.inspect();
+                if (!info.Running) {
+                    return info;
+                }
+                await new Promise(r => setTimeout(r, 100));
             }
-        })
+        }
+
         const timerPromise = new Promise<never>((_, reject) => {
             const timeout = parseInt(process.env.EXECUTION_TIMEOUT_MS || '30000', 10);
             timeoutHandle = setTimeout(async () => {
@@ -179,15 +172,16 @@ const worker = new Worker('execution', async (job: Job) => {
             }, timeout);
         });
 
-        const result = await Promise.race([waitPromise, timerPromise]);
+        const result = await Promise.race([waitExec(exec), timerPromise]);
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
 
-        if (cancelledJobs.has(jobId)) {
-            throw new Error("JOB_CANCELLED");
         }
+        await throwIfCancelled(jobId, container);
 
         const executionResult: ExecutionResult = {
-            success: result.StatusCode === 0,
-            exitCode: result.StatusCode,
+            success: result.ExitCode === 0,
+            exitCode: result.ExitCode,
             ranAt: Date.now(),
             logs: finalLogs,
         };
@@ -220,7 +214,7 @@ const worker = new Worker('execution', async (job: Job) => {
 
         if (container) {
             try {
-                await container.remove({ force: true });
+                await releaseContainer(container.id);
                 console.log("Container cleaned up");
             }
             catch (cleanupError) {
@@ -235,6 +229,10 @@ const worker = new Worker('execution', async (job: Job) => {
             }
         } catch (cleanupError) {
             console.error("Failed to clean up host file:", cleanupError);
+        }
+
+        if (cancelledJobs.has(jobId)) {
+            cancelledJobs.delete(jobId);
         }
     }
 },
