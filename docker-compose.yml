@@ -7,10 +7,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      .env:
-        POSTGRES_USER: ${POSTGRES_USER}
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-        POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
   api:
@@ -24,11 +23,15 @@ services:
       - .:/apps
     depends_on:
       - redis
+      - postgres
+      - worker
     environment:
       - CI=true
       - PORT=3000
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - WORKER_HEALTH_URL=http://worker:3001/health
 
   worker:
     image: node:22-alpine
@@ -43,11 +46,13 @@ services:
       - "3001:3001"
     depends_on:
       - redis
+      - postgres
     environment:
       - CI=true
       - PORT=3001
       - DOCKER_SOCKET=/var/run/docker.sock
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - EXECUTION_TIMEOUT_MS=30000
       - SCRATCH_DIR=/tmp

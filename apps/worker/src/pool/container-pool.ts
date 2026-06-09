@@ -9,7 +9,7 @@ import { createRedisClient } from '../../../../packages/config/redis.config';
 
 const redisClient = createRedisClient();
 const docker = new Docker();
-const POOL_SIZE = 5;
+export const POOL_SIZE = 5;
 
 const createContainer = async()=>{
     let container : Docker.Container | undefined = undefined;
@@ -96,10 +96,46 @@ export const healthCheck = async () => {
         if(!inspect.State.Running){
             await redisClient.lrem('container_pool', 0, containerId);
             const replacementContainer  = await createContainer();
-            await redisClient.rpush('container-pool', replacementContainer.id);
+            await redisClient.rpush('container_pool', replacementContainer.id);
         }
     }
 }
+
+export const getContainerPoolSnapshot = async () => {
+    const containerIds = await redisClient.lrange('container_pool', 0, -1);
+    const inspections = await Promise.allSettled(
+        containerIds.map(async (containerId) => {
+            const inspect = await docker.getContainer(containerId).inspect();
+            return {
+                id: containerId,
+                running: Boolean(inspect.State.Running),
+                status: inspect.State.Status,
+                image: inspect.Config.Image,
+            };
+        })
+    );
+
+    const containers = inspections.map((inspection, index) => {
+        if (inspection.status === 'fulfilled') {
+            return inspection.value;
+        }
+
+        return {
+            id: containerIds[index],
+            running: false,
+            status: 'missing',
+            error: inspection.reason instanceof Error ? inspection.reason.message : String(inspection.reason),
+        };
+    });
+
+    return {
+        target: POOL_SIZE,
+        available: containerIds.length,
+        running: containers.filter((container) => container.running).length,
+        warming: containerIds.length < POOL_SIZE,
+        containers,
+    };
+};
 
 export const cleanupOrphanedContainers = async () => {
     const containers = await docker.listContainers({
