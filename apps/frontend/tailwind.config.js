@@ -5,37 +5,37 @@ export default {
     extend: {
       colors: {
         bg: {
-          page: "#09111f",
-          surface: "#0f1a2e",
-          elevated: "#16223a",
-          muted: "#1d2b46",
-          inverse: "#f6f1e6",
+          page: "#f9f8f6",       // Warm off-white/linen page background
+          surface: "#ffffff",    // Pure white for panel containers
+          elevated: "#f3efe9",   // Slightly deeper warm white for hover/elevated states
+          muted: "#eae5dc",      // Warm grey for disabled/muted elements
+          inverse: "#1d2024",    // Dark warm charcoal for high-contrast elements
         },
         border: {
-          subtle: "#243652",
-          strong: "#3a5278",
-          focus: "#79d8ff",
+          subtle: "#e6e1d6",     // Soft warm-grey border
+          strong: "#ccc6ba",     // Defined border for structures
+          focus: "#2563eb",      // Trustworthy blue accent for focus states
         },
         text: {
-          primary: "#eef5ff",
-          secondary: "#a9bad3",
-          muted: "#6f819b",
-          inverse: "#172033",
+          primary: "#1c1f24",    // Readable dark charcoal
+          secondary: "#535b69",  // Muted dark grey for metadata/descriptions
+          muted: "#8c94a0",      // Light grey for captions/placeholders
+          inverse: "#f9f8f6",    // Warm off-white for text on dark backgrounds
         },
         accent: {
-          cyan: "#49c7f5",
-          green: "#74e3a2",
-          amber: "#f7bf5e",
-          red: "#ff6b7d",
-          violet: "#b6a3ff",
+          cyan: "#0284c7",       // Approachable sky/cadet blue
+          green: "#15803d",      // Trustworthy emerald green
+          amber: "#b45309",      // Warm bronze/amber
+          red: "#b91c1c",        // Muted crimson red
+          violet: "#4f46e5",     // Professional indigo/violet
         },
         panel: {
-          editor: "#13223a",
-          terminal: "#081525",
-          architecture: "#182944",
-          metadata: "#1f2f4d",
-          history: "#21314e",
-          warm: "#192846",
+          editor: "#ffffff",
+          terminal: "#fbfaf8",   // Sepia-tinted clean console background
+          architecture: "#ffffff",
+          metadata: "#ffffff",
+          history: "#ffffff",
+          warm: "#ffffff",
         },
       },
       fontFamily: {
