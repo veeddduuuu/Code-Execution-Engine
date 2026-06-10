@@ -1,0 +1,15 @@
+:root {
+  --bg-page: #F4EFE6;
+  --bg-card: #FAF7F2;
+  --bg-editor: #E6DED2;
+  --bg-terminal: #DCD3C6;
+  --border: #D9D4CC;
+  --text-primary: #2D2D2D;
+  --text-secondary: #6B6560;
+  --accent: #B97A57;
+  --status-pending: #534AB7;
+  --status-running: #E85D24;
+  --status-completed: #3B6D11;
+  --status-failed: #A32D2D;
+  --status-cancelled: #888780;
+}
