@@ -1,32 +1,51 @@
-import { useState, type ReactNode } from "react";
-
-const jobs = [
-  { id: "job_1824", status: "completed", language: "ts", duration: "208ms" },
-  { id: "job_1823", status: "running", language: "js", duration: "live" },
-  { id: "job_1822", status: "failed", language: "ts", duration: "31s" },
-  { id: "job_1821", status: "cancelled", language: "js", duration: "4s" },
-  { id: "job_1820", status: "completed", language: "ts", duration: "190ms" },
-  { id: "job_1819", status: "queued", language: "js", duration: "pending" },
-];
-
-const metrics = [
-  { label: "Warm Pool", value: "0 bps" },
-  { label: "Queue Depth", value: "12" },
-  { label: "Workers", value: "3 active" },
-  { label: "P95 Runtime", value: "812ms" },
-];
+import { useEffect, useState, type ReactNode } from "react";
+import { useHealth } from "../lib/useHealth";
+import { useJobStream } from "../lib/useJobStream";
+import { useJobs } from "../lib/useJobs";
+import { getHealthSummary } from "../types/api";
 
 const pipelineEvents = ["Submit", "Persist", "Enqueue", "Worker pickup", "Container run", "Stream logs", "Finalize"];
 
 export function WorkspacePage() {
-  const [selectedJob, setSelectedJob] = useState(jobs[0].id);
+  const { jobs, error: jobsError } = useJobs();
+  const { health } = useHealth();
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [isPipelineOpen, setIsPipelineOpen] = useState(false);
+
+  useEffect(() => {
+    if (jobs.length === 0) {
+      setSelectedJobId("");
+      return;
+    }
+
+    setSelectedJobId((current) => (current && jobs.some((job) => job.jobId === current) ? current : jobs[0].jobId));
+  }, [jobs]);
+
+  const { logs, status, error: streamError } = useJobStream(selectedJobId);
+
+  const healthSummary = health ? getHealthSummary(health) : null;
+
+  const metrics = healthSummary
+    ? [
+        { label: "Warm Pool", value: `${healthSummary.poolAvailable} available` },
+        { label: "Queue Depth", value: String(healthSummary.queueDepth) },
+        { label: "Workers", value: `${healthSummary.workerCount} active` },
+        { label: "System", value: healthSummary.status },
+      ]
+    : [
+        { label: "Warm Pool", value: "—" },
+        { label: "Queue Depth", value: "—" },
+        { label: "Workers", value: "—" },
+        { label: "System", value: "—" },
+      ];
 
   return (
     <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
       <section className="overflow-hidden border-y border-border-subtle bg-bg-page py-2 text-sm text-text-secondary">
         <p className="truncate">
-          System status like headline if it does not fit. API orchestration, worker execution, Docker isolation, Redis queue, Postgres persistence.
+          {healthSummary
+            ? `System ${healthSummary.status} · queue ${healthSummary.queueDepth} · pool ${healthSummary.poolAvailable} · workers ${healthSummary.workerCount}`
+            : "System status like headline if it does not fit. API orchestration, worker execution, Docker isolation, Redis queue, Postgres persistence."}
         </p>
       </section>
 
@@ -56,8 +75,20 @@ export function WorkspacePage() {
           </Panel>
 
           <Panel className="bg-panel-terminal" title="Terminal">
-            <div className="mt-4 h-[calc(100%-2rem)] rounded border border-border-subtle bg-bg-page p-3 font-mono text-sm text-accent-green">
-              $ awaiting execution stream
+            <div className="mt-4 h-[calc(100%-2rem)] overflow-y-auto rounded border border-border-subtle bg-bg-page p-3 font-mono text-sm text-accent-green">
+              {!selectedJobId ? (
+                <p>$ select a job to stream logs</p>
+              ) : streamError ? (
+                <p className="text-accent-amber">{streamError.message}</p>
+              ) : logs.length === 0 ? (
+                <p>$ awaiting execution stream{status === "connecting" ? "..." : ""}</p>
+              ) : (
+                logs.map((log, index) => (
+                  <span key={`${log.ts}-${index}`} className={log.stream === "stderr" ? "text-accent-amber" : undefined}>
+                    {log.data}
+                  </span>
+                ))
+              )}
             </div>
           </Panel>
         </div>
@@ -92,24 +123,27 @@ export function WorkspacePage() {
             <button className="rounded bg-bg-inverse px-3 py-1.5 text-sm text-text-inverse">Rerun</button>
           </div>
         </div>
+        {jobsError ? <p className="text-sm text-accent-amber">{jobsError.message}</p> : null}
         <div className="flex gap-3 overflow-x-auto pb-1">
-          {jobs.map((job) => (
-            <button
-              className={[
-                "grid min-w-48 gap-2 rounded border p-3 text-left text-sm transition",
-                selectedJob === job.id ? "border-border-focus bg-bg-elevated" : "border-border-subtle bg-bg-surface hover:bg-bg-muted",
-              ].join(" ")}
-              key={job.id}
-              onClick={() => setSelectedJob(job.id)}
-              type="button"
-            >
-              <span className="font-mono text-text-primary">{job.id}</span>
-              <span className="text-text-secondary">{job.status}</span>
-              <span className="text-xs text-text-muted">
-                {job.language} · {job.duration}
-              </span>
-            </button>
-          ))}
+          {jobs.length === 0 ? (
+            <p className="text-sm text-text-muted">No jobs yet.</p>
+          ) : (
+            jobs.map((job) => (
+              <button
+                className={[
+                  "grid min-w-48 gap-2 rounded border p-3 text-left text-sm transition",
+                  selectedJobId === job.jobId ? "border-border-focus bg-bg-elevated" : "border-border-subtle bg-bg-surface hover:bg-bg-muted",
+                ].join(" ")}
+                key={job.jobId}
+                onClick={() => setSelectedJobId(job.jobId)}
+                type="button"
+              >
+                <span className="font-mono text-text-primary">{job.jobId}</span>
+                <span className="text-text-secondary">{job.status}</span>
+                <span className="text-xs text-text-muted">{new Date(job.createdAt).toLocaleString()}</span>
+              </button>
+            ))
+          )}
         </div>
       </section>
 
