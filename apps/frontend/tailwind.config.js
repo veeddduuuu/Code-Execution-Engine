@@ -23,6 +23,7 @@ export default {
           inverse: "var(--bg-page)",
         },
         accent: {
+          DEFAULT: "var(--accent)",
           cyan: "var(--status-pending)",
           green: "var(--status-completed)",
           amber: "var(--status-running)",

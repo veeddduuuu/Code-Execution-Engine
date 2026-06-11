@@ -1,12 +1,21 @@
 import React from "react";
 import { HealthResponse } from "../types/api";
 
-interface NodeInfoPanelProps {
+interface NodeInfoDrawerProps {
   nodeId: string;
+  isOpen: boolean;
+  onClose: () => void;
   healthData: HealthResponse | null;
 }
 
-export const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({ nodeId, healthData }) => {
+export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
+  nodeId,
+  isOpen,
+  onClose,
+  healthData,
+}) => {
+  if (!isOpen) return null;
+
   // Static information maps
   const infoMap: Record<
     string,
@@ -202,22 +211,38 @@ export const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({ nodeId, healthData
   };
 
   return (
-    <div className="flex flex-col h-full bg-bg-surface p-4 rounded border border-border-subtle shadow-sm justify-between">
-      <div>
-        <div className="border-b border-border-subtle pb-2 mb-3">
-          <span className="text-3xs uppercase tracking-wider font-semibold text-text-muted">{selectedInfo.role}</span>
-          <h2 className="text-base font-bold text-text-primary mt-0.5">{selectedInfo.title}</h2>
+    <div className="fixed inset-0 bg-[#1C1F24]/55 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      {/* Backdrop overlay listener */}
+      <div className="absolute inset-0 cursor-default" onClick={onClose} />
+
+      {/* Bubble Modal Card */}
+      <div className="relative w-full max-w-md bg-bg-surface border border-border-subtle rounded-xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-border-subtle flex items-center justify-between bg-bg-muted">
+          <div>
+            <span className="text-3xs uppercase tracking-wider font-semibold text-text-muted">{selectedInfo.role}</span>
+            <h3 className="text-xs font-bold font-mono text-text-primary uppercase truncate max-w-[240px] block mt-0.5">
+              {selectedInfo.title}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-text-secondary hover:text-text-primary p-1 bg-bg-page border border-border-subtle rounded transition-colors text-2xs font-mono font-bold"
+          >
+            ✕ CLOSE
+          </button>
         </div>
 
-        <div className="space-y-3">
+        {/* Content */}
+        <div className="p-5 flex-grow overflow-y-auto space-y-4 font-sans select-none">
           <div>
             <h4 className="text-2xs uppercase tracking-wider font-bold text-text-muted">What it does</h4>
-            <p className="text-xs text-text-primary mt-1 font-sans leading-relaxed">{selectedInfo.what}</p>
+            <p className="text-xs text-text-primary mt-1 leading-normal font-sans">{selectedInfo.what}</p>
           </div>
 
           <div>
             <h4 className="text-2xs uppercase tracking-wider font-bold text-text-muted">Why it works this way</h4>
-            <p className="text-xs text-text-primary mt-1 font-sans leading-relaxed">{selectedInfo.why}</p>
+            <p className="text-xs text-text-primary mt-1 leading-normal font-sans">{selectedInfo.why}</p>
           </div>
 
           <div>
@@ -233,12 +258,12 @@ export const NodeInfoPanel: React.FC<NodeInfoPanelProps> = ({ nodeId, healthData
               ))}
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="mt-4 pt-3 border-t border-border-subtle">
-        <h4 className="text-2xs uppercase tracking-wider font-bold text-text-muted mb-2">Live Subsystem Metrics</h4>
-        {getMetrics()}
+          <div className="pt-3 border-t border-border-subtle">
+            <h4 className="text-2xs uppercase tracking-wider font-bold text-text-muted mb-2">Live Subsystem Metrics</h4>
+            {getMetrics()}
+          </div>
+        </div>
       </div>
     </div>
   );

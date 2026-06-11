@@ -59,6 +59,7 @@ export function WorkspacePage() {
   
   const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [activeNode, setActiveNode] = useState<string>("browser");
+  const [isNodeDrawerOpen, setIsNodeDrawerOpen] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [timelineJob, setTimelineJob] = useState<any | null>(null);
   const [dlqJobs, setDlqJobs] = useState<any[]>([]);
@@ -66,8 +67,14 @@ export function WorkspacePage() {
   const editorRef = useRef<MonacoEditorRef>(null);
   const terminalRef = useRef<TerminalPanelRef>(null);
   const lastWrittenRef = useRef<number>(0);
+  const lastJobIdRef = useRef<string>("");
 
   const [state, dispatch] = useReducer(reducer, { status: "idle", jobId: "" });
+
+  const handleNodeClick = (nodeId: string) => {
+    setActiveNode(nodeId);
+    setIsNodeDrawerOpen(true);
+  };
 
   // Fetch dead letter queue
   const fetchDlq = async () => {
@@ -202,6 +209,12 @@ export function WorkspacePage() {
   useEffect(() => {
     if (!selectedJobId) return;
 
+    if (selectedJobId !== lastJobIdRef.current) {
+      terminalRef.current?.clear();
+      lastWrittenRef.current = 0;
+      lastJobIdRef.current = selectedJobId;
+    }
+
     if (logs.length > lastWrittenRef.current) {
       for (let i = lastWrittenRef.current; i < logs.length; i++) {
         terminalRef.current?.write(logs[i]);
@@ -262,25 +275,27 @@ export function WorkspacePage() {
         {/* Left Workspace (Editor & Terminal) */}
         <div className="grid min-h-[38rem] gap-4 xl:grid-rows-[minmax(26rem,1fr)_14rem]">
           {/* Editor Panel */}
-          <Panel className="bg-bg-card" title="Monaco Code Editor">
-            <div className="absolute right-4 top-4 flex gap-2 z-10">
-              {state.status === "submitting" || state.status === "streaming" ? (
+          <Panel
+            className="bg-bg-card"
+            title="Monaco Code Editor"
+            headerAction={
+              <div className="flex items-center gap-2">
                 <button
                   onClick={handleCancel}
-                  className="px-3.5 py-1.5 text-xs font-mono font-bold rounded border border-status-failed bg-status-failed/10 hover:bg-status-failed/20 text-status-failed transition-colors"
+                  className="px-3 py-1 text-3xs font-mono font-bold rounded border border-status-failed bg-status-failed/10 hover:bg-status-failed/20 text-status-failed transition-colors"
                 >
                   ✕ CANCEL
                 </button>
-              ) : (
                 <button
                   onClick={() => handleRun()}
-                  className="px-4 py-1.5 text-xs font-mono font-bold rounded bg-accent hover:bg-accent/80 text-text-inverse transition-colors"
+                  className="px-4 py-1 text-3xs font-mono font-bold rounded border border-status-completed bg-status-completed/10 hover:bg-status-completed/20 text-status-completed transition-colors"
                 >
                   ▶ RUN CODE
                 </button>
-              )}
-            </div>
-            <div className="mt-8 h-[calc(100%-3rem)] rounded border border-border-subtle overflow-hidden">
+              </div>
+            }
+          >
+            <div className="h-full rounded border border-border-subtle overflow-hidden">
               <MonacoEditor
                 ref={editorRef}
                 defaultCode={`// Code Execution Engine Sandbox\n// Write safe, standard Javascript here\n\nfunction runCode() {\n  return "Warming container... execution complete!";\n}\n\nconsole.log(runCode());`}
@@ -295,36 +310,40 @@ export function WorkspacePage() {
           </Panel>
         </div>
 
-        {/* Right Workspace (Architecture Flow & Node Info) */}
-        <div className="grid gap-4 grid-rows-2">
+        {/* Right Workspace (Architecture Flow & Live Metrics) */}
+        <div className="flex flex-col gap-4">
           {/* Interactive SVG Diagram */}
-          <ArchitectureFlow
-            selectedNode={activeNode}
-            onSelectNode={setActiveNode}
-            activeStatus={state.status}
-          />
+          <div className="flex-grow">
+            <ArchitectureFlow
+              selectedNode={activeNode}
+              onSelectNode={handleNodeClick}
+              activeStatus={state.status}
+            />
+          </div>
 
-          {/* Subsystem Details Card */}
-          <NodeInfoPanel nodeId={activeNode} healthData={health} />
+          {/* Action button and live subsystem metrics */}
+          <div className="bg-bg-card p-4 rounded border border-border-subtle shadow-sm space-y-3 shrink-0">
+            <button
+              onClick={() => {
+                const currentJob = jobs.find((j) => j.jobId === selectedJobId);
+                if (currentJob) handleOpenTimeline(currentJob);
+              }}
+              disabled={!selectedJobId}
+              className="w-full py-2 text-xs font-mono font-bold rounded bg-bg-inverse text-text-inverse hover:bg-bg-inverse/85 transition-colors disabled:opacity-50"
+            >
+              ⚡ OPEN EXECUTION TIMELINE DRAWER
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              {metrics.map((metric) => (
+                <div key={metric.label} className="p-2 bg-bg-page border border-border-subtle rounded flex flex-col justify-center">
+                  <span className="text-4xs uppercase font-bold text-text-secondary tracking-wider">{metric.label}</span>
+                  <span className="text-xs font-bold font-mono text-text-primary mt-0.5">{metric.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
-
-      {/* Slide Drawer: Pipeline events timeline */}
-      <div className="flex justify-between items-center bg-bg-card p-3 rounded border border-border-subtle">
-        <span className="text-xs font-mono text-text-secondary">
-          Pipeline details & event milestones:
-        </span>
-        <button
-          onClick={() => {
-            const currentJob = jobs.find((j) => j.jobId === selectedJobId);
-            if (currentJob) handleOpenTimeline(currentJob);
-          }}
-          disabled={!selectedJobId}
-          className="px-4 py-2 text-xs font-mono font-bold rounded bg-bg-inverse text-text-inverse hover:bg-bg-inverse/85 transition-colors disabled:opacity-50"
-        >
-          ⚡ OPEN EXECUTION TIMELINE DRAWER
-        </button>
-      </div>
 
       {/* Bottom Subsystem Dashboard Tabs */}
       <SystemFocusPanel
@@ -347,34 +366,19 @@ export function WorkspacePage() {
         />
       </section>
 
-      {/* Warm Pool Metrics & Blurred Visualizers */}
-      <section className="grid gap-4 rounded border border-border-subtle bg-bg-card p-4 md:grid-cols-[8rem_minmax(0,1fr)_8rem] items-center">
-        <div className="rounded border border-border-subtle bg-bg-muted h-24 blur-sm opacity-50 relative overflow-hidden flex items-center justify-center">
-          <span className="text-4xs text-text-secondary font-mono">Sensitive Zone</span>
-        </div>
-        <div className="flex gap-4 overflow-x-auto justify-around py-2">
-          {metrics.map((metric) => (
-            <article
-              className="grid min-h-24 min-w-44 place-items-center rounded border border-border-strong bg-bg-surface p-3 text-center shadow-2xs"
-              key={metric.label}
-            >
-              <div>
-                <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider">{metric.label}</p>
-                <p className="mt-1.5 font-mono text-base font-bold text-text-primary">{metric.value}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-        <div className="rounded border border-border-subtle bg-bg-muted h-24 blur-sm opacity-50 relative overflow-hidden flex items-center justify-center">
-          <span className="text-4xs text-text-secondary font-mono">Sensitive Zone</span>
-        </div>
-      </section>
-
       {/* Floating Timeline Drawer */}
       <ExecutionTimeline
         job={timelineJob}
         isOpen={isTimelineOpen}
         onClose={() => setIsTimelineOpen(false)}
+      />
+
+      {/* Floating Node Info Drawer */}
+      <NodeInfoPanel
+        nodeId={activeNode}
+        isOpen={isNodeDrawerOpen}
+        onClose={() => setIsNodeDrawerOpen(false)}
+        healthData={health}
       />
     </main>
   );
@@ -384,13 +388,19 @@ type PanelProps = {
   children?: ReactNode;
   className: string;
   title: string;
+  headerAction?: ReactNode;
 };
 
-function Panel({ children, className, title }: PanelProps) {
+function Panel({ children, className, title, headerAction }: PanelProps) {
   return (
-    <section className={`relative rounded border border-border-subtle p-4 ${className} shadow-2xs`}>
-      <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider mb-2 border-b border-border-subtle pb-1 font-mono">{title}</p>
-      {children}
+    <section className={`relative rounded border border-border-subtle p-4 ${className} shadow-2xs h-full flex flex-col`}>
+      <div className="flex items-center justify-between mb-2 border-b border-border-subtle pb-1 shrink-0">
+        <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider font-mono">{title}</p>
+        {headerAction}
+      </div>
+      <div className="relative flex-grow h-0">
+        {children}
+      </div>
     </section>
   );
 }

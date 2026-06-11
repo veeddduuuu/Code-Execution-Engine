@@ -20,7 +20,9 @@
     "strict": true,
     "target": "ES2022",
     "types": [
-      "vite/client"
+      "vite/client",
+      "node",
+      "monaco-editor"
     ],
     "useDefineForClassFields": true
   },
