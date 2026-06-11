@@ -15,7 +15,7 @@ type DependencyCheck = {
 };
 
 const WORKER_HEALTH_URL = process.env.WORKER_HEALTH_URL || 'http://localhost:3001/health';
-const HEALTH_TIMEOUT_MS = Number(process.env.HEALTH_TIMEOUT_MS || 1500);
+const HEALTH_TIMEOUT_MS = Number(process.env.HEALTH_TIMEOUT_MS || 5000);
 
 const nowMs = () => Number(process.hrtime.bigint() / 1_000_000n);
 
