@@ -1,171 +1,381 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useRef, useReducer, type ReactNode } from "react";
 import { useHealth } from "../lib/useHealth";
 import { useJobStream } from "../lib/useJobStream";
 import { useJobs } from "../lib/useJobs";
 import { getHealthSummary } from "../types/api";
+import { MonacoEditor, MonacoEditorRef } from "../components/editor/MonacoEditor";
+import { executeCode, cancelJob, getDlq, replayDlq, getJobStatus } from "../lib/apiClient";
+import { TerminalPanel, TerminalPanelRef } from "../components/terminal/TerminalPanel";
+import { StatusStrip } from "../components/StatusStrip";
+import { ArchitectureFlow } from "../components/ArchitectureFlow";
+import { NodeInfoPanel } from "../components/NodeInfoPanel";
+import { JobHistory } from "../components/JobHistory";
+import { SystemFocusPanel } from "../components/SystemFocusPanel";
+import { ExecutionTimeline } from "../components/ExecutionTimeline";
 
-const pipelineEvents = ["Submit", "Persist", "Enqueue", "Worker pickup", "Container run", "Stream logs", "Finalize"];
+type ExecutionStatus = "idle" | "submitting" | "streaming" | "done" | "failed" | "cancelled";
+
+interface State {
+  status: ExecutionStatus;
+  jobId: string;
+}
+
+type Action =
+  | { type: "RUN_CLICKED" }
+  | { type: "SUBMIT_SUCCESS"; payload: { jobId: string } }
+  | { type: "SUBMIT_FAILURE"; payload: { error: string } }
+  | { type: "STREAM_STARTED" }
+  | { type: "DONE_RECEIVED"; payload: { success: boolean } }
+  | { type: "CANCEL_CLICKED" }
+  | { type: "CANCELLED_RECEIVED" }
+  | { type: "SELECT_JOB"; payload: { jobId: string; status: ExecutionStatus } };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case "RUN_CLICKED":
+      return { ...state, status: "submitting", jobId: "" };
+    case "SUBMIT_SUCCESS":
+      return { ...state, status: "streaming", jobId: action.payload.jobId };
+    case "SUBMIT_FAILURE":
+      return { ...state, status: "failed" };
+    case "STREAM_STARTED":
+      return { ...state, status: "streaming" };
+    case "DONE_RECEIVED":
+      return { ...state, status: action.payload.success ? "done" : "failed" };
+    case "CANCEL_CLICKED":
+      return state;
+    case "CANCELLED_RECEIVED":
+      return { ...state, status: "cancelled" };
+    case "SELECT_JOB":
+      return { ...state, status: action.payload.status, jobId: action.payload.jobId };
+    default:
+      return state;
+  }
+}
 
 export function WorkspacePage() {
   const { jobs, error: jobsError } = useJobs();
   const { health } = useHealth();
+  
   const [selectedJobId, setSelectedJobId] = useState<string>("");
-  const [isPipelineOpen, setIsPipelineOpen] = useState(false);
+  const [activeNode, setActiveNode] = useState<string>("browser");
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [timelineJob, setTimelineJob] = useState<any | null>(null);
+  const [dlqJobs, setDlqJobs] = useState<any[]>([]);
+
+  const editorRef = useRef<MonacoEditorRef>(null);
+  const terminalRef = useRef<TerminalPanelRef>(null);
+  const lastWrittenRef = useRef<number>(0);
+
+  const [state, dispatch] = useReducer(reducer, { status: "idle", jobId: "" });
+
+  // Fetch dead letter queue
+  const fetchDlq = async () => {
+    try {
+      const dead = await getDlq();
+      setDlqJobs(dead || []);
+    } catch (err) {
+      console.error("Failed to fetch DLQ:", err);
+    }
+  };
 
   useEffect(() => {
+    fetchDlq();
+    const interval = setInterval(fetchDlq, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRun = async (codeToRun?: string) => {
+    const code = codeToRun ?? editorRef.current?.getValue();
+    if (!code || !code.trim()) return;
+
+    dispatch({ type: "RUN_CLICKED" });
+    terminalRef.current?.clear();
+    lastWrittenRef.current = 0;
+
+    try {
+      const response = await executeCode(code, "javascript");
+      const jobId = response?.jobId;
+      if (jobId) {
+        dispatch({ type: "SUBMIT_SUCCESS", payload: { jobId } });
+        setSelectedJobId(jobId);
+      } else {
+        dispatch({ type: "SUBMIT_FAILURE", payload: { error: "No job ID returned" } });
+        terminalRef.current?.writeError("API did not return a job ID.");
+      }
+    } catch (err: any) {
+      dispatch({ type: "SUBMIT_FAILURE", payload: { error: err.message || "Failed to submit" } });
+      terminalRef.current?.writeError(err.message || "Execution submission failed.");
+    }
+  };
+
+  const handleCancel = async () => {
+    const jobId = selectedJobId || state.jobId;
+    if (!jobId) return;
+
+    dispatch({ type: "CANCEL_CLICKED" });
+
+    try {
+      await cancelJob(jobId);
+    } catch (err: any) {
+      console.error("Cancellation failed:", err);
+      terminalRef.current?.writeError(`Cancellation failed: ${err.message}`);
+    }
+  };
+
+  const handleSelectJob = (jobId: string) => {
+    setSelectedJobId(jobId);
+    const selectedJob = jobs.find((j) => j.jobId === jobId);
+    if (selectedJob) {
+      let nextStatus: ExecutionStatus = "idle";
+      if (selectedJob.status === "completed") nextStatus = "done";
+      else if (selectedJob.status === "failed") nextStatus = "failed";
+      else if (selectedJob.status === "cancelled") nextStatus = "cancelled";
+      else if (selectedJob.status === "running") nextStatus = "streaming";
+
+      dispatch({ type: "SELECT_JOB", payload: { jobId, status: nextStatus } });
+    }
+  };
+
+  const handleReRunJob = async (jobId: string) => {
+    try {
+      terminalRef.current?.clear();
+      terminalRef.current?.writeInfo(`Recovering code for job ${jobId.slice(0, 8)}...`);
+      const jobDetails = await getJobStatus(jobId);
+      if (jobDetails && jobDetails.code) {
+        editorRef.current?.setValue(jobDetails.code);
+        handleRun(jobDetails.code);
+      } else {
+        terminalRef.current?.writeError("Could not retrieve source code for this job.");
+      }
+    } catch (err: any) {
+      console.error("Failed to re-run job:", err);
+      terminalRef.current?.writeError(`Re-run failed: ${err.message}`);
+    }
+  };
+
+  const handleReplayDlq = async (jobId: string) => {
+    try {
+      terminalRef.current?.clear();
+      terminalRef.current?.writeInfo(`Replaying dead letter job ${jobId.slice(0, 8)}...`);
+      const response = await replayDlq(jobId);
+      if (response?.jobId) {
+        handleSelectJob(response.jobId);
+        fetchDlq();
+      }
+    } catch (err: any) {
+      console.error("Failed to replay DLQ job:", err);
+      terminalRef.current?.writeError(`DLQ replay failed: ${err.message}`);
+    }
+  };
+
+  // Sync historical selections
+  useEffect(() => {
     if (jobs.length === 0) {
-      setSelectedJobId("");
       return;
     }
 
-    setSelectedJobId((current) => (current && jobs.some((job) => job.jobId === current) ? current : jobs[0].jobId));
-  }, [jobs]);
+    if (!selectedJobId) {
+      const defaultJobId = jobs[0].jobId;
+      setSelectedJobId(defaultJobId);
 
-  const { logs, status, error: streamError } = useJobStream(selectedJobId);
+      let nextStatus: ExecutionStatus = "idle";
+      if (jobs[0].status === "completed") nextStatus = "done";
+      else if (jobs[0].status === "failed") nextStatus = "failed";
+      else if (jobs[0].status === "cancelled") nextStatus = "cancelled";
+      else if (jobs[0].status === "running") nextStatus = "streaming";
+
+      dispatch({ type: "SELECT_JOB", payload: { jobId: defaultJobId, status: nextStatus } });
+    }
+  }, [jobs, selectedJobId]);
+
+  const { logs, status: streamStatus, error: streamError, result, cancelled } = useJobStream(selectedJobId);
+
+  // Sync logs and final execution states
+  useEffect(() => {
+    if (streamStatus === "open") {
+      dispatch({ type: "STREAM_STARTED" });
+    }
+  }, [streamStatus]);
+
+  // Handle writing logs and results imperatively
+  useEffect(() => {
+    if (!selectedJobId) return;
+
+    if (logs.length > lastWrittenRef.current) {
+      for (let i = lastWrittenRef.current; i < logs.length; i++) {
+        terminalRef.current?.write(logs[i]);
+      }
+      lastWrittenRef.current = logs.length;
+    }
+  }, [logs, selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedJobId) return;
+
+    if (result) {
+      dispatch({ type: "DONE_RECEIVED", payload: { success: result.success } });
+      terminalRef.current?.writeInfo(`Process exited with code ${result.exitCode}`);
+    } else if (cancelled) {
+      dispatch({ type: "CANCELLED_RECEIVED" });
+      terminalRef.current?.writeWarning(`Execution Cancelled: ${cancelled.message}`);
+    } else if (streamError) {
+      dispatch({ type: "SUBMIT_FAILURE", payload: { error: streamError.message } });
+      terminalRef.current?.writeError(streamError.message);
+    }
+  }, [result, cancelled, streamError, selectedJobId]);
+
+  // Load details to timeline drawer when clicked
+  const handleOpenTimeline = async (j: any) => {
+    try {
+      const detailedJob = await getJobStatus(j.jobId);
+      setTimelineJob(detailedJob);
+      setIsTimelineOpen(true);
+    } catch (err) {
+      setTimelineJob(j);
+      setIsTimelineOpen(true);
+    }
+  };
 
   const healthSummary = health ? getHealthSummary(health) : null;
-
   const metrics = healthSummary
     ? [
         { label: "Warm Pool", value: `${healthSummary.poolAvailable} available` },
         { label: "Queue Depth", value: String(healthSummary.queueDepth) },
         { label: "Workers", value: `${healthSummary.workerCount} active` },
-        { label: "System", value: healthSummary.status },
+        { label: "System Status", value: healthSummary.status.toUpperCase() },
       ]
     : [
         { label: "Warm Pool", value: "—" },
         { label: "Queue Depth", value: "—" },
         { label: "Workers", value: "—" },
-        { label: "System", value: "—" },
+        { label: "System Status", value: "OFFLINE" },
       ];
 
   return (
-    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
-      <section className="overflow-hidden border-y border-border-subtle bg-bg-page py-2 text-sm text-text-secondary">
-        <p className="truncate">
-          {healthSummary
-            ? `System ${healthSummary.status} · queue ${healthSummary.queueDepth} · pool ${healthSummary.poolAvailable} · workers ${healthSummary.workerCount}`
-            : "System status like headline if it does not fit. API orchestration, worker execution, Docker isolation, Redis queue, Postgres persistence."}
-        </p>
-      </section>
+    <main className="mx-auto flex flex-col gap-4 px-4 py-4 max-w-7xl font-sans">
+      {/* Top Banner Scrolling Ticker */}
+      <StatusStrip health={health} jobs={jobs} />
 
-      <section className="grid min-h-[calc(100vh-18rem)] gap-4 xl:grid-cols-[minmax(0,66fr)_minmax(22rem,34fr)]">
-        <div className="grid min-h-[38rem] gap-4 xl:grid-rows-[minmax(28rem,1fr)_12rem]">
-          <Panel className="bg-panel-editor" title="Editor">
-            <div className="absolute right-4 top-4 flex gap-2">
-              <button className="grid size-10 place-items-center rounded border border-border-strong bg-bg-inverse text-sm text-text-inverse">
-                Run
-              </button>
-              <button className="grid size-10 place-items-center rounded border border-border-strong bg-bg-muted text-text-primary">
-                X
-              </button>
-            </div>
-            <div className="mt-6 grid h-[calc(100%-3rem)] grid-cols-[3rem_1fr] rounded border border-border-subtle bg-bg-page font-mono text-sm">
-              <div className="grid content-start gap-2 border-r border-border-subtle p-3 text-right text-text-muted">
-                {Array.from({ length: 12 }, (_, index) => (
-                  <span key={index}>{index + 1}</span>
-                ))}
-              </div>
-              <div className="p-3 text-text-secondary">
-                const result = await runCode();
-                <br />
-                console.log(result);
-              </div>
-            </div>
-          </Panel>
-
-          <Panel className="bg-panel-terminal" title="Terminal">
-            <div className="mt-4 h-[calc(100%-2rem)] overflow-y-auto rounded border border-border-subtle bg-bg-page p-3 font-mono text-sm text-accent-green">
-              {!selectedJobId ? (
-                <p>$ select a job to stream logs</p>
-              ) : streamError ? (
-                <p className="text-accent-amber">{streamError.message}</p>
-              ) : logs.length === 0 ? (
-                <p>$ awaiting execution stream{status === "connecting" ? "..." : ""}</p>
+      {/* Main Workspace Layout */}
+      <section className="grid min-h-[calc(100vh-22rem)] gap-4 xl:grid-cols-[minmax(0,66fr)_minmax(22rem,34fr)]">
+        {/* Left Workspace (Editor & Terminal) */}
+        <div className="grid min-h-[38rem] gap-4 xl:grid-rows-[minmax(26rem,1fr)_14rem]">
+          {/* Editor Panel */}
+          <Panel className="bg-bg-card" title="Monaco Code Editor">
+            <div className="absolute right-4 top-4 flex gap-2 z-10">
+              {state.status === "submitting" || state.status === "streaming" ? (
+                <button
+                  onClick={handleCancel}
+                  className="px-3.5 py-1.5 text-xs font-mono font-bold rounded border border-status-failed bg-status-failed/10 hover:bg-status-failed/20 text-status-failed transition-colors"
+                >
+                  ✕ CANCEL
+                </button>
               ) : (
-                logs.map((log, index) => (
-                  <span key={`${log.ts}-${index}`} className={log.stream === "stderr" ? "text-accent-amber" : undefined}>
-                    {log.data}
-                  </span>
-                ))
+                <button
+                  onClick={() => handleRun()}
+                  className="px-4 py-1.5 text-xs font-mono font-bold rounded bg-accent hover:bg-accent/80 text-text-inverse transition-colors"
+                >
+                  ▶ RUN CODE
+                </button>
               )}
             </div>
+            <div className="mt-8 h-[calc(100%-3rem)] rounded border border-border-subtle overflow-hidden">
+              <MonacoEditor
+                ref={editorRef}
+                defaultCode={`// Code Execution Engine Sandbox\n// Write safe, standard Javascript here\n\nfunction runCode() {\n  return "Warming container... execution complete!";\n}\n\nconsole.log(runCode());`}
+                onRun={handleRun}
+              />
+            </div>
+          </Panel>
+
+          {/* Terminal Panel */}
+          <Panel className="bg-bg-card" title="Standard Emulated Console (stdout / stderr)">
+            <TerminalPanel ref={terminalRef} />
           </Panel>
         </div>
 
-        <Panel className="min-h-[38rem] bg-panel-architecture" title="Architecture">
-          <div className="mt-8 grid h-[calc(100%-8rem)] place-items-center">
-            <div className="grid w-full max-w-xs gap-5">
-              <Node label="API" tone="cyan" />
-              <div className="mx-auto h-8 w-px bg-border-strong" />
-              <Node label="Queue" tone="amber" />
-              <div className="mx-auto h-8 w-px bg-border-strong" />
-              <Node label="Worker + Docker" tone="green" />
-              <div className="mx-auto h-8 w-px bg-border-strong" />
-              <Node label="Postgres" tone="violet" />
-            </div>
-          </div>
-          <button
-            className="absolute bottom-4 left-4 right-4 rounded border border-border-focus bg-bg-elevated p-4 text-left text-sm text-text-primary transition hover:bg-bg-muted"
-            onClick={() => setIsPipelineOpen(true)}
-            type="button"
-          >
-            Pipeline highlight
-          </button>
-        </Panel>
-      </section>
+        {/* Right Workspace (Architecture Flow & Node Info) */}
+        <div className="grid gap-4 grid-rows-2">
+          {/* Interactive SVG Diagram */}
+          <ArchitectureFlow
+            selectedNode={activeNode}
+            onSelectNode={setActiveNode}
+            activeStatus={state.status}
+          />
 
-      <section className="grid gap-3 rounded border border-border-subtle bg-panel-history p-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-text-secondary">Job history</p>
-          <div className="flex gap-2">
-            <button className="rounded border border-border-subtle px-3 py-1.5 text-sm text-text-secondary">Get more details</button>
-            <button className="rounded bg-bg-inverse px-3 py-1.5 text-sm text-text-inverse">Rerun</button>
-          </div>
-        </div>
-        {jobsError ? <p className="text-sm text-accent-amber">{jobsError.message}</p> : null}
-        <div className="flex gap-3 overflow-x-auto pb-1">
-          {jobs.length === 0 ? (
-            <p className="text-sm text-text-muted">No jobs yet.</p>
-          ) : (
-            jobs.map((job) => (
-              <button
-                className={[
-                  "grid min-w-48 gap-2 rounded border p-3 text-left text-sm transition",
-                  selectedJobId === job.jobId ? "border-border-focus bg-bg-elevated" : "border-border-subtle bg-bg-surface hover:bg-bg-muted",
-                ].join(" ")}
-                key={job.jobId}
-                onClick={() => setSelectedJobId(job.jobId)}
-                type="button"
-              >
-                <span className="font-mono text-text-primary">{job.jobId}</span>
-                <span className="text-text-secondary">{job.status}</span>
-                <span className="text-xs text-text-muted">{new Date(job.createdAt).toLocaleString()}</span>
-              </button>
-            ))
-          )}
+          {/* Subsystem Details Card */}
+          <NodeInfoPanel nodeId={activeNode} healthData={health} />
         </div>
       </section>
 
-      <section className="grid gap-4 rounded border border-border-subtle bg-panel-warm p-4 md:grid-cols-[8rem_minmax(0,1fr)_8rem]">
-        <div className="rounded border border-border-subtle bg-bg-muted blur-sm" />
-        <div className="flex gap-4 overflow-x-auto">
+      {/* Slide Drawer: Pipeline events timeline */}
+      <div className="flex justify-between items-center bg-bg-card p-3 rounded border border-border-subtle">
+        <span className="text-xs font-mono text-text-secondary">
+          Pipeline details & event milestones:
+        </span>
+        <button
+          onClick={() => {
+            const currentJob = jobs.find((j) => j.jobId === selectedJobId);
+            if (currentJob) handleOpenTimeline(currentJob);
+          }}
+          disabled={!selectedJobId}
+          className="px-4 py-2 text-xs font-mono font-bold rounded bg-bg-inverse text-text-inverse hover:bg-bg-inverse/85 transition-colors disabled:opacity-50"
+        >
+          ⚡ OPEN EXECUTION TIMELINE DRAWER
+        </button>
+      </div>
+
+      {/* Bottom Subsystem Dashboard Tabs */}
+      <SystemFocusPanel
+        health={health}
+        dlqJobs={dlqJobs}
+        onReplayDlq={handleReplayDlq}
+      />
+
+      {/* Job History Scrolling Card Deck */}
+      <section className="rounded border border-border-subtle bg-bg-card p-4 shadow-sm">
+        {jobsError && (
+          <p className="text-xs text-accent-red font-mono mb-2">History Fetch Error: {jobsError.message}</p>
+        )}
+        <JobHistory
+          jobs={jobs}
+          selectedJobId={selectedJobId}
+          onSelectJob={handleSelectJob}
+          onReRunJob={handleReRunJob}
+          onViewTimeline={handleOpenTimeline}
+        />
+      </section>
+
+      {/* Warm Pool Metrics & Blurred Visualizers */}
+      <section className="grid gap-4 rounded border border-border-subtle bg-bg-card p-4 md:grid-cols-[8rem_minmax(0,1fr)_8rem] items-center">
+        <div className="rounded border border-border-subtle bg-bg-muted h-24 blur-sm opacity-50 relative overflow-hidden flex items-center justify-center">
+          <span className="text-4xs text-text-secondary font-mono">Sensitive Zone</span>
+        </div>
+        <div className="flex gap-4 overflow-x-auto justify-around py-2">
           {metrics.map((metric) => (
             <article
-              className="grid min-h-32 min-w-56 place-items-center rounded border border-border-strong bg-bg-surface p-4 text-center"
+              className="grid min-h-24 min-w-44 place-items-center rounded border border-border-strong bg-bg-surface p-3 text-center shadow-2xs"
               key={metric.label}
             >
               <div>
-                <p className="text-sm text-text-secondary">{metric.label}</p>
-                <p className="mt-2 font-mono text-xl">{metric.value}</p>
+                <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider">{metric.label}</p>
+                <p className="mt-1.5 font-mono text-base font-bold text-text-primary">{metric.value}</p>
               </div>
             </article>
           ))}
         </div>
-        <div className="rounded border border-border-subtle bg-bg-muted blur-sm" />
+        <div className="rounded border border-border-subtle bg-bg-muted h-24 blur-sm opacity-50 relative overflow-hidden flex items-center justify-center">
+          <span className="text-4xs text-text-secondary font-mono">Sensitive Zone</span>
+        </div>
       </section>
 
-      {isPipelineOpen ? <PipelineSheet onClose={() => setIsPipelineOpen(false)} /> : null}
+      {/* Floating Timeline Drawer */}
+      <ExecutionTimeline
+        job={timelineJob}
+        isOpen={isTimelineOpen}
+        onClose={() => setIsTimelineOpen(false)}
+      />
     </main>
   );
 }
@@ -178,54 +388,9 @@ type PanelProps = {
 
 function Panel({ children, className, title }: PanelProps) {
   return (
-    <section className={`relative rounded border border-border-subtle p-4 ${className}`}>
-      <p className="text-sm text-text-secondary">{title}</p>
+    <section className={`relative rounded border border-border-subtle p-4 ${className} shadow-2xs`}>
+      <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider mb-2 border-b border-border-subtle pb-1 font-mono">{title}</p>
       {children}
     </section>
-  );
-}
-
-function Node({ label, tone }: { label: string; tone: "amber" | "cyan" | "green" | "violet" }) {
-  const toneClass = {
-    amber: "border-accent-amber",
-    cyan: "border-accent-cyan",
-    green: "border-accent-green",
-    violet: "border-accent-violet",
-  }[tone];
-
-  return <div className={`rounded border ${toneClass} bg-bg-surface p-4 text-center text-sm text-text-secondary`}>{label}</div>;
-}
-
-function PipelineSheet({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-20 bg-bg-page/70">
-      <aside className="ml-auto grid h-full w-full max-w-md grid-rows-[auto_1fr] border-l border-border-subtle bg-bg-surface shadow-2xl">
-        <header className="flex items-center justify-between border-b border-border-subtle p-4">
-          <div>
-            <p className="text-sm text-text-secondary">Side page</p>
-            <h2 className="text-xl font-semibold">Event pipeline</h2>
-          </div>
-          <button className="rounded border border-border-subtle px-3 py-1.5 text-sm text-text-secondary" onClick={onClose} type="button">
-            Close
-          </button>
-        </header>
-        <div className="overflow-y-auto p-5">
-          <div className="grid gap-5">
-            {pipelineEvents.map((event, index) => (
-              <div className="grid grid-cols-[1rem_1fr] gap-3" key={event}>
-                <div className="grid justify-items-center">
-                  <span className="size-3 rounded-full bg-accent-cyan" />
-                  {index < pipelineEvents.length - 1 ? <span className="h-14 border-l border-dashed border-border-strong" /> : null}
-                </div>
-                <div className="rounded border border-border-subtle bg-bg-page p-3">
-                  <p className="text-sm text-text-primary">{event}</p>
-                  <p className="mt-1 text-xs text-text-muted">per-execution metrics placeholder</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-    </div>
   );
 }

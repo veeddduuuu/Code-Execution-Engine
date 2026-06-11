@@ -3,18 +3,28 @@
     "baseUrl": ".",
     "composite": true,
     "ignoreDeprecations": "6.0",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2022"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     },
     "jsx": "react-jsx",
     "strict": true,
     "target": "ES2022",
-    "types": ["vite/client"],
+    "types": [
+      "vite/client"
+    ],
     "useDefineForClassFields": true
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

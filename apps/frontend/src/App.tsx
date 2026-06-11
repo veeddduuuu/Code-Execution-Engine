@@ -1,67 +1,73 @@
-import { useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Router, Routes } from "react-router-dom";
-import { ObservabilityPage } from "@/pages/ObservabilityPage";
-import { WorkspacePage } from "@/pages/WorkspacePage";
-import { NotFoundPage } from "@/pages/NotFoundPage";
+import React from "react";
+import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { BootPage } from "./pages/BootPage";
-import { Outlet } from "react-router-dom";
-const navItems = [
-  { label: "Workspace", to: "/workspace" },
-  { label: "Obs.", to: "/observability" },
-];
+import { WorkspacePage } from "./pages/WorkspacePage";
+import { ObservabilityPage } from "./pages/ObservabilityPage";
+import { ArchitecturePage } from "./pages/ArchitecturePage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 export function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/boot" replace />} />
-      <Route path="/boot" element={<BootPage />} />
+  const location = useLocation();
+  const isBoot = location.pathname === "/boot" || location.pathname === "/";
 
-      <Route element={<AppLayout />}>
+  return (
+    <div className="min-h-screen bg-bg-page text-text-primary">
+      {/* Hide navbar on Boot screen */}
+      {!isBoot && (
+        <nav className="border-b border-border-subtle bg-bg-surface py-3 px-4">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <Link className="text-lg font-bold text-text-primary flex items-center gap-2" to="/workspace">
+                <span className="h-4 w-4 bg-accent rounded-sm inline-block" />
+                CEE <span className="text-3xs px-1.5 py-0.5 rounded bg-bg-page border border-border-subtle font-mono text-text-secondary">v1.0</span>
+              </Link>
+              <div className="flex space-x-4 text-sm font-medium">
+                <Link
+                  className={`hover:text-text-primary transition-colors ${
+                    location.pathname === "/workspace" ? "text-accent font-semibold" : "text-text-secondary"
+                  }`}
+                  to="/workspace"
+                >
+                  Workspace
+                </Link>
+                <Link
+                  className={`hover:text-text-primary transition-colors ${
+                    location.pathname === "/observability" ? "text-accent font-semibold" : "text-text-secondary"
+                  }`}
+                  to="/observability"
+                >
+                  Observability
+                </Link>
+                <Link
+                  className={`hover:text-text-primary transition-colors ${
+                    location.pathname === "/architecture" ? "text-accent font-semibold" : "text-text-secondary"
+                  }`}
+                  to="/architecture"
+                >
+                  Archit.
+                </Link>
+              </div>
+            </div>
+            <a
+              className="text-xs text-text-secondary hover:text-text-primary border border-border-subtle rounded px-2.5 py-1 bg-bg-page font-mono transition-all"
+              href="https://github.com"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub
+            </a>
+          </div>
+        </nav>
+      )}
+
+      <Routes>
+        <Route path="/" element={<Navigate to="/boot" replace />} />
+        <Route path="/boot" element={<BootPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/observability" element={<ObservabilityPage />} />
-      </Route>
-
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
-  );
-}
-
-function AppLayout() {
-  return(
-  <div className="min-h-screen bg-bg-page text-text-primary">
-      <header className="border-b border-border-subtle bg-bg-surface">
-        <nav className="mx-auto grid h-14 max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-4 px-4">
-          <NavLink to="/workspace" className="font-mono text-lg font-semibold tracking-normal">
-            CEE
-          </NavLink>
-          <div className="flex min-w-0 items-center gap-2">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  [
-                    "rounded px-3 py-1.5 text-sm text-text-secondary transition",
-                    isActive ? "bg-bg-elevated text-text-primary" : "hover:bg-bg-muted hover:text-text-primary",
-                  ].join(" ")
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-          <a
-            className="rounded px-3 py-1.5 text-sm text-text-secondary hover:bg-bg-muted hover:text-text-primary"
-            href="https://github.com/veeddduuuu/Code-Execution-Engine"
-          >
-            GitHub
-          </a>
-        </nav>
-      </header>
-      <main>
-        <Outlet />
-      </main>
+        <Route path="/architecture" element={<ArchitecturePage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
     </div>
   );
 }
-
