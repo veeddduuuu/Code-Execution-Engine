@@ -116,24 +116,7 @@ The frontend (React + Vite) will be available at `http://localhost:5173`.
 ---
 
 ## Environment Variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://...` |
-| `PORT` | API server port | `3000` |
-| `WORKER_CONCURRENCY` | BullMQ concurrent jobs per worker | `3` |
-| `WORKER_ID` | Unique identifier for this worker | `worker-1` |
-| `EXECUTION_TIMEOUT_MS` | Container kill timeout | `30000` |
-| `MAX_CODE_SIZE_BYTES` | Max accepted code payload | `51200` |
-| `POOL_SIZE_NODE` | Pre-warmed container count | `5` |
-| `POOL_MIN_SIZE` | Pool replenishment threshold | `2` |
-| `POOL_CONTAINER_TTL` | Max container age in seconds | `3600` |
-| `IDEMPOTENCY_TTL_HOURS` | Deduplication window | `24` |
-| `RATE_LIMIT_MAX` | Max requests per window | `10` |
-| `FRONTEND_URL` | CORS allowed origin | `http://localhost:5173` |
-
-See `.env.example` for the full list.
+See `.env.example` for the full list of environment variables.
 
 ---
 
@@ -203,15 +186,6 @@ Every code submission is treated as hostile.
 - `USER runner` in Dockerfile — privilege escalation prevention
 - 30-second hard kill — infinite loop prevention
 
-**API-level controls:**
-- Code size limit: reject payloads > 50KB at the HTTP layer
-- Rate limiting: 10 req/min per IP via Redis
-- Zod validation on all request bodies
-- User code never runs inside the Node.js API process
-- CORS restricted to `FRONTEND_URL`
-- Helmet.js security headers
-
----
 
 ## Project Structure
 
@@ -241,22 +215,6 @@ The project ships to AWS EC2 via GitHub Actions on every merge to `main`.
 **CD** (on merge to main): build Docker images → push to GHCR → SSH into EC2 → `docker-compose pull && up -d`
 
 EC2 runs behind an Nginx reverse proxy with HTTPS termination (Let's Encrypt) and WebSocket upgrade headers.
-
----
-
-## Roadmap
-
-**Post-deployment (Weeks 7–10)**
-- Python 3.12 support with per-language container pools
-- User authentication (Clerk / Supabase OAuth)
-- Per-user job isolation and history
-- WebSocket rooms for multi-tab log streaming
-- Code sharing / permalink system
-
-**Later**
-- Go 1.22 execution support
-- AI debugging assistant: submit code + stderr → get explanation and fix
-- Kubernetes-based orchestration beyond single EC2
 
 ---
 
