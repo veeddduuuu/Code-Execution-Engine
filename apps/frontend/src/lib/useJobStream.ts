@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useReducer } from "react";
 
 export type JobLogEntry = {
     type: "LOG";
@@ -24,6 +24,55 @@ export type JobStreamMessage = JobLogEntry | JobDoneMessage | JobCancelledMessag
 
 export type JobStreamStatus = "idle" | "connecting" | "open" | "closed" | "error";
 
+type StreamState = {
+    logs: JobLogEntry[];
+    status: JobStreamStatus;
+    error: Error | null;
+    result: JobDoneMessage | null;
+    cancelled: JobCancelledMessage | null;
+};
+
+type StreamAction =
+    | { type: "CONNECTING" }
+    | { type: "OPEN" }
+    | { type: "LOG"; payload: JobLogEntry }
+    | { type: "DONE"; payload: JobDoneMessage }
+    | { type: "CANCELLED"; payload: JobCancelledMessage }
+    | { type: "ERROR"; payload: Error }
+    | { type: "CLOSE" }
+    | { type: "RESET" };
+
+const initialState: StreamState = {
+    logs: [],
+    status: "idle",
+    error: null,
+    result: null,
+    cancelled: null,
+};
+
+function streamReducer(state: StreamState, action: StreamAction): StreamState {
+    switch (action.type) {
+        case "RESET":
+            return { ...initialState };
+        case "CONNECTING":
+            return { ...state, status: "connecting", error: null };
+        case "OPEN":
+            return { ...state, status: "open", error: null };
+        case "LOG":
+            return { ...state, logs: [...state.logs, action.payload] };
+        case "DONE":
+            return { ...state, status: "closed", result: action.payload };
+        case "CANCELLED":
+            return { ...state, status: "closed", cancelled: action.payload };
+        case "ERROR":
+            return { ...state, status: "error", error: action.payload };
+        case "CLOSE":
+            return { ...state, status: state.status === "error" ? "error" : "closed" };
+        default:
+            return state;
+    }
+}
+
 function getWebSocketUrl(): string {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${protocol}//${window.location.host}/ws`;
@@ -42,79 +91,131 @@ function parseJobStreamMessage(raw: string): JobStreamMessage | null {
 }
 
 export const useJobStream = (jobId: string) => {
-    const [logs, setLogs] = useState<JobLogEntry[]>([]);
-    const [status, setStatus] = useState<JobStreamStatus>("idle");
-    const [error, setError] = useState<Error | null>(null);
-    const [result, setResult] = useState<JobDoneMessage | null>(null);
-    const [cancelled, setCancelled] = useState<JobCancelledMessage | null>(null);
+    const [state, dispatch] = useReducer(streamReducer, initialState);
+    const wsRef = useRef<WebSocket | null>(null);
+    const reconnectAttemptsRef = useRef(0);
+    const reconnectTimeoutRef = useRef<any>(null);
+    const isClosedByUnmountRef = useRef(false);
+    const wasDisconnectedRef = useRef(false);
+    const terminalReceivedRef = useRef(false);
 
     useEffect(() => {
-        setLogs([]);
-        setError(null);
-        setResult(null);
-        setCancelled(null);
+        dispatch({ type: "RESET" });
+        reconnectAttemptsRef.current = 0;
+        isClosedByUnmountRef.current = false;
+        wasDisconnectedRef.current = false;
+        terminalReceivedRef.current = false;
+
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
 
         if (!jobId) {
-            setStatus("idle");
             return;
         }
 
-        setStatus("connecting");
+        const connect = () => {
+            if (isClosedByUnmountRef.current) return;
+            dispatch({ type: "CONNECTING" });
 
-        const ws = new WebSocket(getWebSocketUrl());
-        let closedByHook = false;
+            const ws = new WebSocket(getWebSocketUrl());
+            wsRef.current = ws;
 
-        ws.onopen = () => {
-            setStatus("open");
-            ws.send(JSON.stringify({ type: "SUBSCRIBE", jobId }));
+            ws.onopen = () => {
+                dispatch({ type: "OPEN" });
+                reconnectAttemptsRef.current = 0;
+                
+                if (wasDisconnectedRef.current) {
+                    dispatch({
+                        type: "LOG",
+                        payload: {
+                            type: "LOG",
+                            stream: "stdout",
+                            data: "\r\n\x1b[33m— reconnected, replaying logs —\x1b[0m\r\n",
+                            ts: Date.now(),
+                        },
+                    });
+                    wasDisconnectedRef.current = false;
+                }
+
+                ws.send(JSON.stringify({ type: "SUBSCRIBE", jobId }));
+            };
+
+            ws.onmessage = (event) => {
+                const message = parseJobStreamMessage(String(event.data));
+                if (!message) return;
+
+                if (message.type === "LOG") {
+                    dispatch({ type: "LOG", payload: message });
+                } else if (message.type === "DONE") {
+                    terminalReceivedRef.current = true;
+                    dispatch({ type: "DONE", payload: message });
+                    ws.close();
+                } else if (message.type === "CANCELLED") {
+                    terminalReceivedRef.current = true;
+                    dispatch({ type: "CANCELLED", payload: message });
+                    ws.close();
+                }
+            };
+
+            ws.onerror = () => {
+                if (isClosedByUnmountRef.current) return;
+                dispatch({ type: "ERROR", payload: new Error("WebSocket connection failed") });
+            };
+
+            ws.onclose = () => {
+                if (isClosedByUnmountRef.current) return;
+
+                // If the job did not finish with DONE or CANCELLED, try to reconnect
+                const wsState = wsRef.current;
+                if (wsState && !terminalReceivedRef.current && reconnectAttemptsRef.current < 3) {
+                    wasDisconnectedRef.current = true;
+                    const delay = 1000 * Math.pow(2, reconnectAttemptsRef.current);
+                    reconnectAttemptsRef.current += 1;
+
+                    dispatch({
+                        type: "LOG",
+                        payload: {
+                            type: "LOG",
+                            stream: "stderr",
+                            data: `\r\n\x1b[33mWebSocket disconnected. Reconnecting in ${delay / 1000}s... (Attempt ${reconnectAttemptsRef.current}/3)\x1b[0m\r\n`,
+                            ts: Date.now(),
+                        },
+                    });
+
+                    reconnectTimeoutRef.current = setTimeout(() => {
+                        connect();
+                    }, delay);
+                } else {
+                    dispatch({ type: "CLOSE" });
+                }
+            };
         };
 
-        ws.onmessage = (event) => {
-            const message = parseJobStreamMessage(String(event.data));
-            if (!message) return;
-
-            if (message.type === "LOG") {
-                setLogs((prev) => [...prev, message]);
-                return;
-            }
-
-            if (message.type === "DONE") {
-                setResult(message);
-                setStatus("closed");
-                return;
-            }
-
-            setCancelled(message);
-            setStatus("closed");
-        };
-
-        ws.onerror = () => {
-            if (closedByHook) return;
-            setError(new Error("WebSocket connection failed"));
-            setStatus("error");
-        };
-
-        ws.onclose = () => {
-            if (closedByHook) return;
-            setStatus((prev) => (prev === "error" ? prev : "closed"));
-        };
+        connect();
 
         return () => {
-            closedByHook = true;
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "UNSUBSCRIBE", jobId }));
+            isClosedByUnmountRef.current = true;
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
             }
-            ws.close();
+            if (wsRef.current) {
+                if (wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: "UNSUBSCRIBE", jobId }));
+                }
+                wsRef.current.close();
+            }
         };
     }, [jobId]);
 
     return {
-        logs,
-        status,
-        error,
-        result,
-        cancelled,
-        isConnected: status === "open",
-        isComplete: status === "closed",
+        logs: state.logs,
+        status: state.status,
+        error: state.error,
+        result: state.result,
+        cancelled: state.cancelled,
+        isConnected: state.status === "open",
+        isComplete: state.status === "closed",
     };
 };

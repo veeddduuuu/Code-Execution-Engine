@@ -34,3 +34,11 @@ export const executeCode = async(code: string, language: string, idempotencyKey?
     return apiFetch('execute', {method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({code, language, idempotencyKey})});
 };
 
+export const getDlq = async() => {
+    return apiFetch('dlq', { method: 'GET' });
+};
+
+export const replayDlq = async(jobId: string) => {
+    return apiFetch(`dlq/${jobId}/replay`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+};
+
