@@ -2,202 +2,203 @@
 
 > Write code in a browser. Run it in a sandboxed Docker container. See output in real time.
 
-**Stack:** Node.js · TypeScript · Docker · BullMQ · Redis · PostgreSQL · React · WebSockets  
-**Status:** Building · v1.0
+CEE is a sandboxed code execution platform for running user-submitted JavaScript safely and reliably. It combines a browser editor, an orchestration API, a BullMQ/Redis job queue, Docker-based sandboxing, PostgreSQL persistence, and real-time WebSocket streaming.
 
----
+The project is built around one rule:
 
-## What It Is
+**API orchestrates. Worker executes. Docker isolates.**
 
-CEE is a production-grade, sandboxed code execution platform. You paste JavaScript or TypeScript into a Monaco editor, hit Run, and output streams back to your browser in real time — no local Node.js, no setup, no environment config.
+## What it does
 
-Every execution is persisted to PostgreSQL. Every job has a deterministic state machine. Duplicate submissions are deduplicated via idempotency keys. Running jobs can be cancelled mid-flight. Containers are pre-warmed to eliminate cold-start latency. Workers are built for crash recovery and horizontal scaling from day one.
-
-**Design rule: The API server orchestrates. The worker executes. Docker sandboxes. These three responsibilities never cross.**
-
----
+* Write JavaScript in a Monaco editor
+* Submit jobs asynchronously through BullMQ
+* Run code inside pre-warmed Docker containers
+* Stream stdout/stderr back to the browser in real time
+* Persist every execution in PostgreSQL
+* Cancel pending or running jobs
+* Replay dead-letter jobs
+* Inspect live queue, worker, pool, and DLQ metrics from the UI
 
 ## Architecture
 
-```
+```text
 Client (React + Monaco + Vite)
-  │ REST (HTTP)          │ WebSocket
-  ▼                      ▼
+  ├─ POST /api/v1/execute
+  ├─ GET  /api/v1/jobs/:id
+  ├─ POST /api/v1/jobs/:id/cancel
+  └─ WebSocket /ws
+        ↓
 API Server (Node.js + Express)
-  /execute  /jobs  /dlq  /health
-  Zod Validation · Idempotency Check · Rate Limiting · WebSocket Server
-  │
-  │ enqueue job (BullMQ)
-  ▼
+  ├─ input validation
+  ├─ rate limiting
+  ├─ idempotency checks
+  ├─ PostgreSQL persistence
+  ├─ job state orchestration
+  └─ WebSocket fan-out
+        ↓
 Redis + BullMQ
-  execution-queue · pub/sub · pool:node:available · log buffers · DLQ
-  │
-  │ worker pulls job
-  ▼
-Worker Process(es) [1..N]
-  ExecutionWorker · ContainerPoolManager · CleanupWorker
-  │
-  │ dockerode SDK
-  ▼
-Docker Engine
-  [warm pool containers] + [active job container]
-  │
-  ▼
+  ├─ execution queue
+  ├─ pub/sub log stream
+  ├─ retry/backoff
+  └─ DLQ tracking
+        ↓
+Worker Process(es)
+  ├─ claim job
+  ├─ acquire warm container
+  ├─ execute code in Docker
+  ├─ publish logs
+  └─ finalize job state
+        ↓
 PostgreSQL
-  jobs · idempotency_keys
+  ├─ jobs
+  └─ idempotency_keys
 ```
 
-**Log streaming path:** Worker stdout → Redis pub/sub → API WebSocket server → Browser  
-**Cancellation path:** Client `POST /cancel` → API publishes to `job:{id}:cancel` → Worker kills container → `CANCELLED` WS event → Browser
+## Execution lifecycle
 
----
+1. User writes code in the browser.
+2. Frontend submits the job to `POST /api/v1/execute`.
+3. API validates the request, stores the job in PostgreSQL, and enqueues it in BullMQ.
+4. Worker picks up the job and runs it inside a Docker container.
+5. Stdout/stderr are streamed through Redis pub/sub.
+6. API forwards logs to the browser over WebSocket.
+7. Final job state is written back to PostgreSQL.
 
 ## Features
 
-**Core Execution**
-- Docker container execution for JS/TS (`node:20-alpine`)
-- Execution state machine: `pending → running → completed | failed | cancelled | dead`
-- 30-second hard timeout watchdog; container killed on breach
-- Security baseline: `--cpus=0.5`, `--memory=128m`, `--network=none`, `--read-only`, non-root user
+### 1) Warm container pool
 
-**Job System**
-- BullMQ async job queue — 3 retries with exponential backoff (1s, 5s, 30s)
-- Worker concurrency: 3 parallel jobs per worker instance
-- Dead letter queue (DLQ): jobs exhausting retries stored with full error context
-- Worker crash recovery: BullMQ stall detection re-queues orphaned jobs
-- Multi-worker scaling: stateless workers share the same queue; BullMQ distributes automatically
+CEE keeps a pre-warmed pool of idle Docker containers so execution can start fast instead of waiting for a cold boot every time. The pool is visible in the UI, along with live counts for warm capacity, available containers, active allocations, and pool state.
 
-**Reliability**
-- PostgreSQL persistence: every job persisted with full audit trail — Redis is not the source of truth
-- Idempotency keys: SHA-256 hashed, deduplicates submissions within a 24h window
-- Execution cancellation: `POST /jobs/:id/cancel` — removes from queue or kills running container
-- Warm container pool: N pre-started containers reduce cold-start from ~2s to ~8ms acquisition time
+Why this matters: warm checkout removes a lot of wasted startup latency and makes the system feel responsive even when jobs are coming in quickly.
 
-**Observability**
-- Real-time WebSocket log streaming with stdout/stderr differentiation
-- Log replay on reconnect (last 100 lines buffered in Redis per job, 24h TTL)
-- `/health` endpoint: live DB + Redis + queue + pool status
-- Execution timeline: per-job event trace with millisecond timestamps
-- Operational observability dashboard: job latency, queue ingestion rate, sandbox boot time, DLQ management
+### 2) Security and sandboxing
 
-**API**
-- Rate limiting: 10 req/min per IP, Redis-backed, 429 with `Retry-After`
-- Zod input validation on all request bodies
-- Structured error codes: `TIMEOUT`, `OOM`, `EXIT_CODE_N`, `CANCELLED`, `JOB_NOT_FOUND`, etc.
-- Versioned API under `/api/v1/`
+Every submission is treated as hostile.
 
----
+* Non-root execution inside the container
+* Network disabled inside the sandbox
+* Read-only filesystem where possible
+* Memory and CPU limits per container
+* Hard timeout for runaway or infinite-loop jobs
 
-## Local Setup
+Why this matters: the sandbox is the product. If the container leaks, the system is broken.
 
-**Prerequisites:** Docker, Docker Compose, Node.js 20+, pnpm
+### 3) Idempotency
 
-```bash
-# Clone the repo
-git clone https://github.com/your-username/cee.git
-cd cee
+CEE supports idempotency keys so duplicate submissions do not create duplicate jobs. Keys are hashed and checked against recent executions before a new job is created.
 
-# Install dependencies
-pnpm install
+Why this matters: retries, double-clicks, and flaky networks should not create chaos in the queue.
 
-# Copy environment variables
-cp .env.example .env
+### 4) Queueing, retries, and DLQ
 
-# Start all services (API, worker-1, worker-2, Redis, PostgreSQL)
-docker-compose up --build
+BullMQ handles job dispatch, retries, and backoff. Failed jobs are retried, and once retries are exhausted they move into the dead-letter queue for inspection and replay.
 
-# Verify everything is healthy
-curl http://localhost:3000/api/v1/health
-```
+Why this matters: failures become visible and recoverable instead of disappearing into the void like a bad group project.
 
-The API will be available at `http://localhost:3000`.  
-The frontend (React + Vite) will be available at `http://localhost:5173`.
+### 5) Health and boot sequence
 
----
+The health system checks the API, PostgreSQL, Redis, queue, and worker state. The UI also exposes a boot/status sequence so you can see the system move through startup and readiness instead of guessing.
 
-## Environment Variables
-See `.env.example` for the full list of environment variables.
+Why this matters: a “working” system is not just one that returns 200; it is one that tells you what is alive, warming, degraded, or unavailable.
 
----
+### 6) Observability and monitoring
 
-## API Reference
+The UI is intentionally educational. It shows live queue depth, worker count, warm pool state, DLQ status, execution history, and latency metrics. It also includes an execution timeline drawer with step-by-step events for each request.
+
+Why this matters: this project is not just about running code, it is about understanding the system.
+
+## UI focus
+
+The frontend is not a throwaway shell. It is built to explain the backend.
+
+* Monaco editor for writing code
+* Emulated terminal for runtime output
+* Status strip for system health and queue state
+* Architecture flow panel for request path visualization
+* System focus panel for queue / workers / pool / DLQ inspection
+* Execution timeline drawer for tracing one request from submit to completion
+* Observability dashboard for boot state and live subsystem metrics
+
+## API
+
+Base path: `/api/v1`
 
 ### Execution
 
-| Method | Route | Description |
-|---|---|---|
-| `POST` | `/api/v1/execute` | Submit code. Body: `{ code, language, idempotencyKey? }`. Returns `202 { jobId, status }`. |
-| `GET` | `/api/v1/jobs/:id` | Poll job status, output, exitCode, timestamps. |
-| `GET` | `/api/v1/jobs` | List recent jobs. Query: `?status=completed&language=js&limit=50` |
-| `POST` | `/api/v1/jobs/:id/cancel` | Cancel pending or running job. Idempotent. |
-| `POST` | `/api/v1/jobs/:id/rerun` | Re-submit a previous job with the same code. Returns new `jobId`. |
+| Method | Route              | Description                     |
+| ------ | ------------------ | ------------------------------- |
+| `POST` | `/execute`         | Submit code for execution       |
+| `GET`  | `/jobs/:id`        | Fetch job status and output     |
+| `GET`  | `/jobs`            | List recent jobs                |
+| `POST` | `/jobs/:id/cancel` | Cancel a pending or running job |
+| `GET`  | `/dlq`             | View dead-letter jobs           |
+| `POST` | `/dlq/:id/replay`  | Re-enqueue a dead job           |
 
-### Dead Letter Queue
+### Health
 
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/api/v1/dlq` | List dead jobs with full error context. |
-| `POST` | `/api/v1/dlq/:id/replay` | Re-enqueue a dead job as a new execution. |
+| Method | Route     | Description                                    |
+| ------ | --------- | ---------------------------------------------- |
+| `GET`  | `/health` | Check API, DB, Redis, queue, and worker health |
 
-### WebSocket Protocol
+### WebSocket
 
-Connect to `ws://localhost:3000/ws`, then:
+Connect to:
+
+```text
+ws://localhost:3000/ws
+```
+
+#### Subscribe to a job
 
 ```json
-// Subscribe to a job's log stream
 { "type": "SUBSCRIBE", "jobId": "job_abc123" }
+```
 
-// Receive streaming output
+#### Log events
+
+```json
 { "type": "LOG", "stream": "stdout", "data": "Hello World", "ts": 1712345678 }
 { "type": "LOG", "stream": "stderr", "data": "Error: oops", "ts": 1712345679 }
+```
 
-// Execution complete
+#### Completion events
+
+```json
 { "type": "DONE", "status": "completed", "exitCode": 0 }
-
-// Job cancelled
 { "type": "CANCELLED", "reason": "user_requested" }
 ```
 
----
+## Job states
 
-## Job State Machine
-
-```
-pending  → (worker picks up)          → running
-running  → (success, exitCode 0)      → completed
-running  → (error / timeout / OOM)    → failed
-running  → (cancel signal received)   → cancelled
-failed   → (attempt < 3)              → pending [re-enqueued]
-failed   → (attempt === 3)            → dead [DLQ]
-pending  → (cancel before pickup)     → cancelled
+```text
+pending  → running → completed
+pending  → running → failed
+pending  → cancelled
+running  → cancelled
+running  → failed → dead
 ```
 
----
+## Tech stack
 
-## Security Model
+* **Frontend:** React, Vite, Monaco Editor
+* **API:** Node.js, Express, TypeScript
+* **Queue:** BullMQ, Redis
+* **Database:** PostgreSQL
+* **Realtime:** WebSockets
+* **Sandbox:** Docker
 
-Every code submission is treated as hostile.
+## Project structure
 
-**Container-level controls:**
-- `--cpus=0.5` — CPU exhaustion prevention
-- `--memory=128m --memory-swap=128m` — memory bomb prevention
-- `--network=none` — no data exfiltration, no C2 beaconing
-- `--read-only` + tmpfs `/tmp` — rootkit persistence prevention
-- `USER runner` in Dockerfile — privilege escalation prevention
-- 30-second hard kill — infinite loop prevention
-
-
-## Project Structure
-
-```
+```text
 cee/
 ├── apps/
 │   ├── api/          # Express API server + WebSocket server
-│   ├── worker/       # BullMQ worker + ContainerPoolManager
+│   ├── worker/       # BullMQ worker + container manager
 │   └── frontend/     # React + Vite + Monaco Editor
 ├── packages/
 │   ├── types/        # Shared TypeScript types
-│   ├── config/       # Shared tsconfig base
+│   ├── config/       # Shared configuration
 │   └── queues/       # BullMQ queue definitions
 ├── docker-compose.yml
 ├── Dockerfile.api
@@ -205,29 +206,65 @@ cee/
 └── .env.example
 ```
 
----
+## Local development
+
+### Prerequisites
+
+* Docker
+* Docker Compose
+* Node.js 20+
+* pnpm
+
+### Setup
+
+```bash
+git clone https://github.com/your-username/cee.git
+cd cee
+pnpm install
+cp .env.example .env
+docker-compose up --build
+```
+
+### Verify
+
+```bash
+curl http://localhost:3000/api/v1/health
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+API:
+
+```text
+http://localhost:3000
+```
+
+## Environment variables
+
+See `.env.example` for the full list.
 
 ## Deployment
 
-The project ships to AWS EC2 via GitHub Actions on every merge to `main`.
+The project is designed to run with Docker-based deployment on a single VM or container host.
 
-**CI** (on PR): `pnpm install → tsc --noEmit → eslint → vitest → docker build`  
-**CD** (on merge to main): build Docker images → push to GHCR → SSH into EC2 → `docker-compose pull && up -d`
+A typical production setup includes:
 
-EC2 runs behind an Nginx reverse proxy with HTTPS termination (Let's Encrypt) and WebSocket upgrade headers.
+* GitHub Actions for CI/CD
+* Docker images for API and worker
+* PostgreSQL and Redis services
+* Reverse proxy with HTTPS termination
+* WebSocket upgrade support
 
----
+## Notes
 
-## Key Architectural Decisions
+This project is intentionally built as a clean separation of concerns:
 
-| Decision | Chosen | Rejected | Reason |
-|---|---|---|---|
-| Persistence | PostgreSQL from day one | In-memory Map → migrate later | Avoid data loss on restart |
-| Pool storage | Redis list (LPOP atomic) | In-memory Map per worker | Survives worker restart; multi-worker safe |
-| Cancellation | Redis signal channel | Polling Postgres flag | Lower latency; worker already has Redis connection |
-| Worker scaling | Stateless + shared queue | Dedicated worker per job type | BullMQ handles distribution automatically |
-| Deployment | EC2 + Docker Compose + Nginx | Kubernetes | Sufficient for portfolio; no K8s overhead |
+* the API never executes code
+* the worker never serves the UI
+* Docker handles isolation, not application logic
 
----
-
-*"If the container leaks, the product fails. If the worker crashes, the job must survive."*
+That separation keeps the system easier to scale, debug, and reason about.
