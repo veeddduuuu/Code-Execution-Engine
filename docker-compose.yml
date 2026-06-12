@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # Runs migrations against Neon, then shuts down
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: pnpm run migrate
+    env_file: .env
+    environment:
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: pnpm run dev:api
+    env_file: .env
+    environment:
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_HEALTH_URL=http://worker:3001/health
+      # CORS needs to know where the browser is coming from
+      - FRONTEND_URL=http://localhost:5174
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: pnpm run dev:worker
+    env_file: .env
+    environment:
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./apps/worker:/app/apps/worker
+      - ./packages:/app/packages
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/cee:/tmp/cee
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      # Vite proxy routes /api traffic to the Docker DNS name 'api'
+      - API_URL=http://api:3000
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./apps/frontend:/app/apps/frontend
+      - ./packages/types:/app/packages/types
+    depends_on:
+      - api
+
+networks:
+  default:
+    driver: bridge
