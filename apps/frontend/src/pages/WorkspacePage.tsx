@@ -68,6 +68,8 @@ export function WorkspacePage() {
   const terminalRef = useRef<TerminalPanelRef>(null);
   const lastWrittenRef = useRef<number>(0);
   const lastJobIdRef = useRef<string>("");
+  const userSelectedRef = useRef(false);
+  const pendingSubmissionRef = useRef<{ code: string; jobId: string } | null>(null);
 
   const [state, dispatch] = useReducer(reducer, { status: "idle", jobId: "" });
 
@@ -96,24 +98,15 @@ export function WorkspacePage() {
     const code = codeToRun ?? editorRef.current?.getValue();
     if (!code || !code.trim()) return;
 
+    const jobId = crypto.randomUUID();
+    pendingSubmissionRef.current = { code, jobId };
+
     dispatch({ type: "RUN_CLICKED" });
     terminalRef.current?.clear();
     lastWrittenRef.current = 0;
 
-    try {
-      const response = await executeCode(code, "javascript");
-      const jobId = response?.jobId;
-      if (jobId) {
-        dispatch({ type: "SUBMIT_SUCCESS", payload: { jobId } });
-        setSelectedJobId(jobId);
-      } else {
-        dispatch({ type: "SUBMIT_FAILURE", payload: { error: "No job ID returned" } });
-        terminalRef.current?.writeError("API did not return a job ID.");
-      }
-    } catch (err: any) {
-      dispatch({ type: "SUBMIT_FAILURE", payload: { error: err.message || "Failed to submit" } });
-      terminalRef.current?.writeError(err.message || "Execution submission failed.");
-    }
+    userSelectedRef.current = true;
+    setSelectedJobId(jobId);
   };
 
   const handleCancel = async () => {
@@ -131,6 +124,7 @@ export function WorkspacePage() {
   };
 
   const handleSelectJob = (jobId: string) => {
+    userSelectedRef.current = true;
     setSelectedJobId(jobId);
     const selectedJob = jobs.find((j) => j.jobId === jobId);
     if (selectedJob) {
@@ -182,7 +176,7 @@ export function WorkspacePage() {
       return;
     }
 
-    if (!selectedJobId) {
+    if (!selectedJobId && !userSelectedRef.current) {
       const defaultJobId = jobs[0].jobId;
       setSelectedJobId(defaultJobId);
 
@@ -204,6 +198,33 @@ export function WorkspacePage() {
       dispatch({ type: "STREAM_STARTED" });
     }
   }, [streamStatus]);
+
+  useEffect(() => {
+    const pendingSubmission = pendingSubmissionRef.current;
+    if (!pendingSubmission) return;
+    if (selectedJobId !== pendingSubmission.jobId) return;
+    if (streamStatus !== "open") return;
+
+    pendingSubmissionRef.current = null;
+
+    const submitExecution = async () => {
+      try {
+        const response = await executeCode(pendingSubmission.code, "javascript", undefined, pendingSubmission.jobId);
+        const responseJobId = response?.jobId;
+        if (responseJobId) {
+          dispatch({ type: "SUBMIT_SUCCESS", payload: { jobId: responseJobId } });
+        } else {
+          dispatch({ type: "SUBMIT_FAILURE", payload: { error: "No job ID returned" } });
+          terminalRef.current?.writeError("API did not return a job ID.");
+        }
+      } catch (err: any) {
+        dispatch({ type: "SUBMIT_FAILURE", payload: { error: err.message || "Failed to submit" } });
+        terminalRef.current?.writeError(err.message || "Execution submission failed.");
+      }
+    };
+
+    void submitExecution();
+  }, [selectedJobId, streamStatus]);
 
   // Handle writing logs and results imperatively
   useEffect(() => {

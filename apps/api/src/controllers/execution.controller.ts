@@ -5,10 +5,10 @@ import { pool } from '../../../../packages/db/pool';
 import crypto from 'crypto';
 
 export const executeCode = async (req: Request, res: Response) => {
-	const { idempotencyKey, code, language } = req.body;
+	const { idempotencyKey, code, language, jobId: requestedJobId } = req.body;
 	const keyHash = idempotencyKey ? crypto.createHash('sha256').update(idempotencyKey).digest('hex') : null;
 
-	const jobId = crypto.randomUUID();
+	const jobId = requestedJobId || crypto.randomUUID();
 	const jobValues = [jobId, code, language, 'pending'];
 	const idempotencyValues = [keyHash, jobId];
 

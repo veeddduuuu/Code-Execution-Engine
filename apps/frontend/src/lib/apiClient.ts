@@ -30,8 +30,8 @@ export const cancelJob = async(jobId: string) => {
     return apiFetch(`jobs/${jobId}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 };
 
-export const executeCode = async(code: string, language: string, idempotencyKey?: string) => {
-    return apiFetch('execute', {method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({code, language, idempotencyKey})});
+export const executeCode = async(code: string, language: string, idempotencyKey?: string, jobId?: string) => {
+    return apiFetch('execute', {method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({code, language, idempotencyKey, jobId})});
 };
 
 export const getDlq = async() => {

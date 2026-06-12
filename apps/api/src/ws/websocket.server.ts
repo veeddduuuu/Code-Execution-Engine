@@ -101,8 +101,6 @@ export function createWebSocketServer(server : http.Server){
 				await subscriberRedis.unsubscribe(channel);
 				console.log(`Unsubscribed from Redis channel ${channel}`);
 				subscribedChannels.delete(channel);
-				jobSubscrptions.delete(channel);
-				console.log(`Deleted job subscription for channel ${channel}`);
 			}
 		}
 		catch(error){

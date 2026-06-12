@@ -1,4 +1,4 @@
-import { useEffect, useRef, useReducer } from "react";
+import { useEffect, useLayoutEffect, useRef, useReducer } from "react";
 
 export type JobLogEntry = {
     type: "LOG";
@@ -25,6 +25,7 @@ export type JobStreamMessage = JobLogEntry | JobDoneMessage | JobCancelledMessag
 export type JobStreamStatus = "idle" | "connecting" | "open" | "closed" | "error";
 
 type StreamState = {
+    jobId: string;
     logs: JobLogEntry[];
     status: JobStreamStatus;
     error: Error | null;
@@ -40,9 +41,9 @@ type StreamAction =
     | { type: "CANCELLED"; payload: JobCancelledMessage }
     | { type: "ERROR"; payload: Error }
     | { type: "CLOSE" }
-    | { type: "RESET" };
+    | { type: "RESET"; payload: { jobId: string } };
 
-const initialState: StreamState = {
+const initialState: Omit<StreamState, "jobId"> = {
     logs: [],
     status: "idle",
     error: null,
@@ -53,7 +54,7 @@ const initialState: StreamState = {
 function streamReducer(state: StreamState, action: StreamAction): StreamState {
     switch (action.type) {
         case "RESET":
-            return { ...initialState };
+            return { ...initialState, jobId: action.payload.jobId };
         case "CONNECTING":
             return { ...state, status: "connecting", error: null };
         case "OPEN":
@@ -91,7 +92,7 @@ function parseJobStreamMessage(raw: string): JobStreamMessage | null {
 }
 
 export const useJobStream = (jobId: string) => {
-    const [state, dispatch] = useReducer(streamReducer, initialState);
+    const [state, dispatch] = useReducer(streamReducer, { ...initialState, jobId });
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimeoutRef = useRef<any>(null);
@@ -99,8 +100,8 @@ export const useJobStream = (jobId: string) => {
     const wasDisconnectedRef = useRef(false);
     const terminalReceivedRef = useRef(false);
 
-    useEffect(() => {
-        dispatch({ type: "RESET" });
+    useLayoutEffect(() => {
+        dispatch({ type: "RESET", payload: { jobId } });
         reconnectAttemptsRef.current = 0;
         isClosedByUnmountRef.current = false;
         wasDisconnectedRef.current = false;
@@ -166,6 +167,7 @@ export const useJobStream = (jobId: string) => {
 
             ws.onclose = () => {
                 if (isClosedByUnmountRef.current) return;
+                if (ws !== wsRef.current) return;
 
                 // If the job did not finish with DONE or CANCELLED, try to reconnect
                 const wsState = wsRef.current;
@@ -209,13 +211,16 @@ export const useJobStream = (jobId: string) => {
         };
     }, [jobId]);
 
+    const isCurrentJob = state.jobId === jobId;
+    const activeState = isCurrentJob ? state : { ...initialState, jobId };
+
     return {
-        logs: state.logs,
-        status: state.status,
-        error: state.error,
-        result: state.result,
-        cancelled: state.cancelled,
-        isConnected: state.status === "open",
-        isComplete: state.status === "closed",
+        logs: activeState.logs,
+        status: activeState.status,
+        error: activeState.error,
+        result: activeState.result,
+        cancelled: activeState.cancelled,
+        isConnected: activeState.status === "open",
+        isComplete: activeState.status === "closed",
     };
 };

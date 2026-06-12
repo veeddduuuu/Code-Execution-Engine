@@ -16,6 +16,7 @@
   "license": "ISC",
   "packageManager": "pnpm@11.5.0",
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@types/cors": "^2.8.19",
     "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.6",
@@ -36,7 +37,7 @@
     "tsc": "^2.0.4",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "ws": "^8.20.1",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
