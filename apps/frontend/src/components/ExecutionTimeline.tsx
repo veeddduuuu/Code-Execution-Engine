@@ -167,101 +167,94 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
 
   const events = deriveTimelineEvents(job);
 
+  if (!job) {
+    return (
+      <div className="h-full flex items-center justify-center text-text-secondary text-xs italic font-mono">
+        Select a job execution to view detail metrics.
+      </div>
+    );
+  }
+
+  // Determine miniature pipeline state
+  const isDone = job.status === "completed";
+  const isFailed = job.status === "failed";
+  const isRunning = job.status === "running" || job.status === "pending";
+
+  const pipeColor = isFailed ? "bg-accent-red" : "bg-accent-cyan";
+  const pipeWidthAPI = "w-full";
+  const pipeWidthQueue = job.startedAt ? "w-full" : isRunning ? "w-1/2 animate-pulse" : "w-0";
+  const pipeWidthWorker = job.completedAt || isRunning ? "w-full" : "w-0";
+  const pipeWidthSandbox = job.completedAt ? "w-full" : isRunning ? "w-1/2 animate-pulse" : "w-0";
+
   return (
-    <div className="fixed inset-0 bg-[#1C1F24]/55 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      {/* Backdrop overlay listener */}
-      <div className="absolute inset-0 cursor-default" onClick={onClose} />
-
-      {/* Bubble Modal Card */}
-      <div className="relative w-full max-w-md bg-bg-surface border border-border-subtle rounded-xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden">
-        {/* Drawer Header */}
-        <div className="p-4 border-b border-border-subtle flex items-center justify-between bg-bg-muted">
-          <div>
-            <h3 className="text-xs font-bold font-mono text-text-primary uppercase">Execution Timeline</h3>
-            <span className="text-3xs text-text-secondary font-mono truncate max-w-[200px] block mt-0.5">
-              ID: {job?.jobId || "N/A"}
-            </span>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Miniature Live Architecture Pipeline */}
+      <div className="border-b border-white/5 pb-4 mb-4 shrink-0">
+        <div className="flex justify-between items-center text-[10px] font-mono font-bold text-text-secondary mb-2 px-1">
+          <div className="flex items-center space-x-1 w-full relative">
+            {/* Nodes and connecting lines */}
+            <div className={`z-10 px-2 py-1 rounded-lg border ${pipeWidthAPI ? 'bg-white/10 border-white/20 text-text-primary' : 'bg-white/5 border-white/5'}`}>API</div>
+            <div className="flex-grow h-px bg-white/5 relative overflow-hidden"><div className={`absolute top-0 left-0 h-full ${pipeColor} transition-all duration-700 ${pipeWidthAPI}`} /></div>
+            
+            <div className={`z-10 px-2 py-1 rounded-lg border ${(job.startedAt || isRunning) ? 'bg-white/10 border-white/20 text-text-primary' : 'bg-white/5 border-white/5'}`}>Queue</div>
+            <div className="flex-grow h-px bg-white/5 relative overflow-hidden"><div className={`absolute top-0 left-0 h-full ${pipeColor} transition-all duration-700 ${pipeWidthQueue}`} /></div>
+            
+            <div className={`z-10 px-2 py-1 rounded-lg border ${(job.completedAt || isRunning) ? 'bg-white/10 border-white/20 text-text-primary' : 'bg-white/5 border-white/5'}`}>Worker</div>
+            <div className="flex-grow h-px bg-white/5 relative overflow-hidden"><div className={`absolute top-0 left-0 h-full ${pipeColor} transition-all duration-700 ${pipeWidthWorker}`} /></div>
+            
+            <div className={`z-10 px-2 py-1 rounded-lg border ${job.completedAt ? 'bg-white/10 border-white/20 text-text-primary' : 'bg-white/5 border-white/5'}`}>Sandbox</div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary p-1 bg-bg-page border border-border-subtle rounded transition-colors text-2xs font-mono font-bold"
-          >
-            ✕ CLOSE
-          </button>
         </div>
+        <div className="flex justify-between text-3xs text-text-secondary px-2 mt-3 font-mono">
+          <span>{job.jobId}</span>
+          <span className={isDone ? "text-accent-green" : isFailed ? "text-accent-red" : "text-accent-cyan"}>
+            {job.completedAt && job.createdAt
+              ? `Latency: ${new Date(job.completedAt).getTime() - new Date(job.createdAt).getTime()}ms`
+              : "Running..."}
+          </span>
+        </div>
+      </div>
 
-        {/* Overview Block */}
-        {job && (
-          <div className="p-4 bg-bg-page border-b border-border-subtle grid grid-cols-3 gap-2 text-2xs">
-            <div className="flex flex-col">
-              <span className="text-text-secondary">Language</span>
-              <span className="font-mono font-bold text-text-primary mt-0.5">{job.language || "javascript"}</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-text-secondary">Status</span>
-              <span className={`font-mono font-bold uppercase mt-0.5 ${
-                job.status === "completed"
-                  ? "text-accent-green"
-                  : job.status === "failed"
-                  ? "text-accent-red"
-                  : "text-accent-amber"
-              }`}>
-                {job.status}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-text-secondary">Total Latency</span>
-              <span className="font-mono font-bold text-accent-cyan mt-0.5">
-                {job.completedAt && job.createdAt
-                  ? `${new Date(job.completedAt).getTime() - new Date(job.createdAt).getTime()}ms`
-                  : "—"}
-              </span>
-            </div>
+      {/* Timeline List */}
+      <div className="flex-grow overflow-y-auto no-scrollbar font-sans pr-2">
+        {events.length === 0 ? (
+          <p className="text-xs text-text-secondary italic text-center py-8">Awaiting execution data...</p>
+        ) : (
+          <div className="relative border-l-2 border-white/10 ml-3 pl-5 space-y-6 py-2">
+            {events.map((ev, idx) => {
+              let dotColor = "bg-white/20 border-white/10";
+              let ringColor = "ring-transparent";
+              
+              if (ev.status === "completed") {
+                dotColor = "bg-accent-green border-accent-green";
+              } else if (ev.status === "failed") {
+                dotColor = "bg-accent-red border-accent-red";
+              } else if (ev.status === "pending") {
+                dotColor = "bg-bg-page border-accent-cyan";
+                ringColor = "ring-4 ring-accent-cyan/20 animate-pulse";
+              }
+
+              return (
+                <div key={idx} className="relative text-2xs group">
+                  {/* Timeline Bullet */}
+                  <div className={`absolute -left-[27px] top-1.5 h-2.5 w-2.5 rounded-full border-2 z-10 ${dotColor} ${ringColor}`} />
+
+                  {/* Header info */}
+                  <div className="flex items-center justify-between text-[10px] font-mono text-text-secondary mb-1">
+                    <span>{ev.timestamp}</span>
+                    <span className="font-bold text-accent-cyan opacity-80">{ev.relativeOffsetMs}</span>
+                  </div>
+
+                  {/* Title */}
+                  <h4 className="font-bold text-text-primary text-xs mt-0.5">{ev.name}</h4>
+                  
+                  {/* Desc */}
+                  <p className="text-text-secondary mt-1 leading-normal font-sans text-xs">{ev.description}</p>
+                </div>
+              );
+            })}
           </div>
         )}
-
-        {/* Timeline List */}
-        <div className="p-5 flex-grow overflow-y-auto space-y-4 font-sans select-none">
-          {events.length === 0 ? (
-            <p className="text-xs text-text-secondary italic text-center py-8">Select a job execution to view detail metrics.</p>
-          ) : (
-            <div className="relative border-l-2 border-border-subtle ml-2 pl-4 space-y-6">
-              {events.map((ev, idx) => {
-                let dotColor = "bg-border-strong";
-                if (ev.status === "completed") {
-                  dotColor = "bg-accent-green";
-                } else if (ev.status === "failed") {
-                  dotColor = "bg-accent-red";
-                } else if (ev.status === "pending") {
-                  dotColor = "bg-accent-amber animate-pulse";
-                }
-
-                return (
-                  <div key={idx} className="relative text-2xs">
-                    {/* Event Timeline Node Bullet */}
-                    <span className={`absolute -left-[23px] top-1.5 h-3.5 w-3.5 rounded-full border-2 border-bg-surface flex items-center justify-center ${dotColor}`}>
-                      {ev.status === "completed" && (
-                        <span className="h-1 w-1 rounded-full bg-bg-surface" />
-                      )}
-                    </span>
-
-                    {/* Header info */}
-                    <div className="flex items-center justify-between text-3xs font-mono text-text-secondary">
-                      <span>{ev.timestamp}</span>
-                      <span className="font-bold text-accent-cyan">{ev.relativeOffsetMs}</span>
-                    </div>
-
-                    {/* Title */}
-                    <h4 className="font-bold text-text-primary text-xs mt-0.5">{ev.name}</h4>
-                    
-                    {/* Desc */}
-                    <p className="text-text-secondary mt-1 leading-normal font-sans">{ev.description}</p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

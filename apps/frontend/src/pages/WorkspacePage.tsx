@@ -70,6 +70,8 @@ export function WorkspacePage() {
   const lastJobIdRef = useRef<string>("");
   const userSelectedRef = useRef(false);
   const pendingSubmissionRef = useRef<{ code: string; jobId: string } | null>(null);
+  const logQueueRef = useRef<string[]>([]);
+  const isWritingRef = useRef<boolean>(false);
 
   const [state, dispatch] = useReducer(reducer, { status: "idle", jobId: "" });
 
@@ -107,6 +109,14 @@ export function WorkspacePage() {
 
     userSelectedRef.current = true;
     setSelectedJobId(jobId);
+
+    // Instantly switch timeline to the new pending job
+    handleOpenTimeline({
+      jobId,
+      status: "pending",
+      language: "javascript",
+      createdAt: new Date().toISOString()
+    });
   };
 
   const handleCancel = async () => {
@@ -187,6 +197,9 @@ export function WorkspacePage() {
       else if (jobs[0].status === "running") nextStatus = "streaming";
 
       dispatch({ type: "SELECT_JOB", payload: { jobId: defaultJobId, status: nextStatus } });
+      
+      // Auto-load timeline for initial default job
+      handleOpenTimeline(jobs[0]);
     }
   }, [jobs, selectedJobId]);
 
@@ -234,13 +247,30 @@ export function WorkspacePage() {
       terminalRef.current?.clear();
       lastWrittenRef.current = 0;
       lastJobIdRef.current = selectedJobId;
+      logQueueRef.current = [];
+      isWritingRef.current = false;
     }
 
     if (logs.length > lastWrittenRef.current) {
-      for (let i = lastWrittenRef.current; i < logs.length; i++) {
-        terminalRef.current?.write(logs[i]);
-      }
+      const newLogs = logs.slice(lastWrittenRef.current);
       lastWrittenRef.current = logs.length;
+      logQueueRef.current.push(...newLogs);
+      
+      const processQueue = async () => {
+        if (isWritingRef.current) return;
+        isWritingRef.current = true;
+        
+        while (logQueueRef.current.length > 0) {
+          const logChunk = logQueueRef.current.shift();
+          if (logChunk) {
+            terminalRef.current?.write(logChunk);
+            await new Promise(r => setTimeout(r, 15));
+          }
+        }
+        isWritingRef.current = false;
+      };
+      
+      void processQueue();
     }
   }, [logs, selectedJobId]);
 
@@ -250,54 +280,61 @@ export function WorkspacePage() {
     if (result) {
       dispatch({ type: "DONE_RECEIVED", payload: { success: result.success } });
       terminalRef.current?.writeInfo(`Process exited with code ${result.exitCode}`);
+      // Refresh timeline automatically on completion
+      // We pass a stub object so getJobStatus can fetch the freshest data directly
+      handleOpenTimeline({ jobId: selectedJobId, status: "completed" });
     } else if (cancelled) {
       dispatch({ type: "CANCELLED_RECEIVED" });
       terminalRef.current?.writeWarning(`Execution Cancelled: ${cancelled.message}`);
+      handleOpenTimeline({ jobId: selectedJobId, status: "cancelled" });
     } else if (streamError) {
       dispatch({ type: "SUBMIT_FAILURE", payload: { error: streamError.message } });
       terminalRef.current?.writeError(streamError.message);
+      handleOpenTimeline({ jobId: selectedJobId, status: "failed" });
     }
   }, [result, cancelled, streamError, selectedJobId]);
 
   // Load details to timeline drawer when clicked
   const handleOpenTimeline = async (j: any) => {
+    setIsTimelineOpen(true);
+    setTimelineJob(j); // Set immediately to prevent empty state
     try {
       const detailedJob = await getJobStatus(j.jobId);
-      setTimelineJob(detailedJob);
-      setIsTimelineOpen(true);
+      // Ensure we extract the job if it is nested inside a response wrapper
+      let unwrapped = detailedJob.job || detailedJob;
+      
+      // Handle API/Stream race condition: If the stream told us it's completed/failed,
+      // but the database read hasn't updated yet, enforce the stream's truth.
+      if (j.status && (j.status === "completed" || j.status === "failed" || j.status === "cancelled")) {
+        if (unwrapped.status === "running" || unwrapped.status === "pending") {
+          unwrapped = {
+            ...unwrapped,
+            status: j.status,
+            completedAt: unwrapped.completedAt || new Date().toISOString()
+          };
+        }
+      }
+      
+      setTimelineJob(unwrapped);
     } catch (err) {
-      setTimelineJob(j);
-      setIsTimelineOpen(true);
+      console.error("Failed to fetch detailed job status for timeline", err);
     }
   };
 
   const healthSummary = health ? getHealthSummary(health) : null;
-  const metrics = healthSummary
-    ? [
-        { label: "Warm Pool", value: `${healthSummary.poolAvailable} available` },
-        { label: "Queue Depth", value: String(healthSummary.queueDepth) },
-        { label: "Workers", value: `${healthSummary.workerCount} active` },
-        { label: "System Status", value: healthSummary.status.toUpperCase() },
-      ]
-    : [
-        { label: "Warm Pool", value: "—" },
-        { label: "Queue Depth", value: "—" },
-        { label: "Workers", value: "—" },
-        { label: "System Status", value: "OFFLINE" },
-      ];
 
   return (
-    <main className="mx-auto flex flex-col gap-4 px-4 py-4 max-w-7xl font-sans">
+    <main className="mx-auto flex flex-col gap-6 px-6 pt-24 pb-12 max-w-7xl font-sans">
       {/* Top Banner Scrolling Ticker */}
       <StatusStrip health={health} jobs={jobs} />
 
       {/* Main Workspace Layout */}
-      <section className="grid min-h-[calc(100vh-22rem)] gap-4 xl:grid-cols-[minmax(0,66fr)_minmax(22rem,34fr)]">
+      <section className="grid min-h-[calc(100vh-22rem)] gap-6 xl:grid-cols-[minmax(0,66fr)_minmax(22rem,34fr)]">
         {/* Left Workspace (Editor & Terminal) */}
-        <div className="grid min-h-[38rem] gap-4 xl:grid-rows-[minmax(26rem,1fr)_14rem]">
+        <div className="grid min-h-[38rem] gap-6 xl:grid-rows-[minmax(26rem,1fr)_14rem]">
           {/* Editor Panel */}
           <Panel
-            className="bg-bg-card"
+            className="bg-[var(--bg-glass)] backdrop-blur-xl border-white/5"
             title="Monaco Code Editor"
             headerAction={
               <div className="flex items-center gap-2">
@@ -309,14 +346,19 @@ export function WorkspacePage() {
                 </button>
                 <button
                   onClick={() => handleRun()}
-                  className="px-4 py-1 text-3xs font-mono font-bold rounded border border-status-completed bg-status-completed/10 hover:bg-status-completed/20 text-status-completed transition-colors"
+                  disabled={state.status === "submitting"}
+                  className={`px-4 py-1 text-3xs font-mono font-bold rounded border transition-colors ${
+                    state.status === "submitting" 
+                      ? "bg-[linear-gradient(110deg,rgba(34,197,94,0.1),45%,rgba(34,197,94,0.3),55%,rgba(34,197,94,0.1))] bg-[length:200%_100%] animate-shimmer border-status-completed/30 text-status-completed" 
+                      : "border-status-completed bg-status-completed/10 hover:bg-status-completed/20 text-status-completed"
+                  }`}
                 >
-                  ▶ RUN CODE
+                  {state.status === "submitting" ? "⏳ QUEUED..." : "▶ RUN CODE"}
                 </button>
               </div>
             }
           >
-            <div className="h-full rounded border border-border-subtle overflow-hidden">
+            <div className="h-full rounded-2xl border border-white/5 overflow-hidden shadow-inner">
               <MonacoEditor
                 ref={editorRef}
                 defaultCode={`// Code Execution Engine Sandbox\n// Write safe, standard Javascript here\n\nfunction runCode() {\n  return "Warming container... execution complete!";\n}\n\nconsole.log(runCode());`}
@@ -326,43 +368,31 @@ export function WorkspacePage() {
           </Panel>
 
           {/* Terminal Panel */}
-          <Panel className="bg-bg-card" title="Standard Emulated Console (stdout / stderr)">
+          <Panel className="bg-[var(--bg-glass)] backdrop-blur-xl border-white/5" title="Standard Emulated Console (stdout / stderr)">
             <TerminalPanel ref={terminalRef} />
           </Panel>
         </div>
 
-        {/* Right Workspace (Architecture Flow & Live Metrics) */}
-        <div className="flex flex-col gap-4">
-          {/* Interactive SVG Diagram */}
-          <div className="flex-grow">
-            <ArchitectureFlow
-              selectedNode={activeNode}
-              onSelectNode={handleNodeClick}
-              activeStatus={state.status}
-            />
-          </div>
-
-          {/* Action button and live subsystem metrics */}
-          <div className="bg-bg-card p-4 rounded border border-border-subtle shadow-sm space-y-3 shrink-0">
-            <button
-              onClick={() => {
-                const currentJob = jobs.find((j) => j.jobId === selectedJobId);
-                if (currentJob) handleOpenTimeline(currentJob);
-              }}
-              disabled={!selectedJobId}
-              className="w-full py-2 text-xs font-mono font-bold rounded bg-bg-inverse text-text-inverse hover:bg-bg-inverse/85 transition-colors disabled:opacity-50"
-            >
-              ⚡ OPEN EXECUTION TIMELINE DRAWER
-            </button>
-            <div className="grid grid-cols-2 gap-2">
-              {metrics.map((metric) => (
-                <div key={metric.label} className="p-2 bg-bg-page border border-border-subtle rounded flex flex-col justify-center">
-                  <span className="text-4xs uppercase font-bold text-text-secondary tracking-wider">{metric.label}</span>
-                  <span className="text-xs font-bold font-mono text-text-primary mt-0.5">{metric.value}</span>
-                </div>
-              ))}
+        {/* Right Workspace (Live Execution Timeline) */}
+        <div className="flex flex-col min-h-[38rem]">
+          <Panel 
+            className="bg-[var(--bg-glass)] backdrop-blur-xl border-white/5 flex-1 shadow-2xl relative overflow-hidden" 
+            title={
+              <span className="flex items-center gap-2 text-accent-cyan drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                <span className="h-2 w-2 rounded-full bg-accent-cyan shadow-[0_0_6px_var(--accent-cyan)]" />
+                Live Execution Trace
+              </span>
+            }
+          >
+            <div className="absolute inset-0 bg-gradient-to-b from-accent-cyan/5 to-transparent pointer-events-none" />
+            <div className="relative z-10 h-full">
+              <ExecutionTimeline
+                job={timelineJob}
+                isOpen={true}
+                onClose={() => {}}
+              />
             </div>
-          </div>
+          </Panel>
         </div>
       </section>
 
@@ -374,7 +404,7 @@ export function WorkspacePage() {
       />
 
       {/* Job History Scrolling Card Deck */}
-      <section className="rounded border border-border-subtle bg-bg-card p-4 shadow-sm">
+      <section className="rounded-3xl border border-white/5 bg-[var(--bg-glass)] backdrop-blur-xl p-6 shadow-2xl">
         {jobsError && (
           <p className="text-xs text-accent-red font-mono mb-2">History Fetch Error: {jobsError.message}</p>
         )}
@@ -386,13 +416,6 @@ export function WorkspacePage() {
           onViewTimeline={handleOpenTimeline}
         />
       </section>
-
-      {/* Floating Timeline Drawer */}
-      <ExecutionTimeline
-        job={timelineJob}
-        isOpen={isTimelineOpen}
-        onClose={() => setIsTimelineOpen(false)}
-      />
 
       {/* Floating Node Info Drawer */}
       <NodeInfoPanel
@@ -414,9 +437,12 @@ type PanelProps = {
 
 function Panel({ children, className, title, headerAction }: PanelProps) {
   return (
-    <section className={`relative rounded border border-border-subtle p-4 ${className} shadow-2xs h-full flex flex-col`}>
-      <div className="flex items-center justify-between mb-2 border-b border-border-subtle pb-1 shrink-0">
-        <p className="text-3xs uppercase font-bold text-text-secondary tracking-wider font-mono">{title}</p>
+    <section className={`relative rounded-3xl border border-border-strong p-5 ${className} shadow-2xl h-full flex flex-col transition-all`}>
+      <div className="flex items-center justify-between mb-4 pb-2 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-white/20" />
+          <p className="text-xs font-semibold text-text-primary tracking-wide">{title}</p>
+        </div>
         {headerAction}
       </div>
       <div className="relative flex-grow h-0">

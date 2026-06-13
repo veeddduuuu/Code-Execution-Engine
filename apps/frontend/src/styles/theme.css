@@ -1,15 +1,24 @@
 :root {
-  --bg-page: #F4EFE6;
-  --bg-card: #FAF7F2;
-  --bg-editor: #E6DED2;
-  --bg-terminal: #DCD3C6;
-  --border: #D9D4CC;
-  --text-primary: #2D2D2D;
-  --text-secondary: #6B6560;
-  --accent: #B97A57;
-  --status-pending: #534AB7;
-  --status-running: #E85D24;
-  --status-completed: #3B6D11;
-  --status-failed: #A32D2D;
-  --status-cancelled: #888780;
+  --bg-page: #000000;
+  --bg-card: rgba(26, 26, 26, 0.4);
+  --bg-editor: #0c0c0c;
+  --bg-terminal: #000000;
+  --bg-glass: rgba(18, 18, 18, 0.6);
+  --border: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.08);
+  --text-primary: #ededed;
+  --text-secondary: #888888;
+  --accent: #22c55e;
+  --status-pending: #3b82f6;
+  --status-running: #f59e0b;
+  --status-completed: #22c55e;
+  --status-failed: #ef4444;
+  --status-cancelled: #737373;
+}
+
+body {
+  background: radial-gradient(circle at 50% -20%, #1a1a1a, #000000 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
 }

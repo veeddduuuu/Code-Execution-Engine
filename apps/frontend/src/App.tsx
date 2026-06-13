@@ -11,52 +11,50 @@ export function App() {
   const isBoot = location.pathname === "/boot" || location.pathname === "/";
 
   return (
-    <div className="min-h-screen bg-bg-page text-text-primary">
+    <div className="min-h-screen text-text-primary selection:bg-accent/30 selection:text-white">
       {/* Hide navbar on Boot screen */}
       {!isBoot && (
-        <nav className="border-b border-border-subtle bg-bg-surface py-3 px-4">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <div className="flex items-center space-x-6">
-              <Link className="text-lg font-bold text-text-primary flex items-center gap-2" to="/workspace">
-                <span className="h-4 w-4 bg-accent rounded-sm inline-block" />
-                CEE <span className="text-3xs px-1.5 py-0.5 rounded bg-bg-page border border-border-subtle font-mono text-text-secondary">v1.0</span>
+        <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-40 bg-[var(--bg-glass)] backdrop-blur-xl border border-border-strong rounded-full px-5 py-2.5 shadow-2xl flex items-center justify-between w-[90%] max-w-4xl transition-all">
+          <div className="flex items-center space-x-6">
+            <Link className="text-base font-bold text-text-primary flex items-center gap-2 drop-shadow-md" to="/workspace">
+              <span className="h-3 w-3 bg-accent rounded-full shadow-[0_0_8px_var(--status-completed)]" />
+              CEE <span className="text-3xs px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 font-mono text-text-secondary tracking-wide">v1.0</span>
+            </Link>
+            <div className="flex space-x-5 text-xs font-semibold tracking-wide">
+              <Link
+                className={`transition-colors ${
+                  location.pathname === "/workspace" ? "text-text-primary drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]" : "text-text-secondary hover:text-text-primary"
+                }`}
+                to="/workspace"
+              >
+                Workspace
               </Link>
-              <div className="flex space-x-4 text-sm font-medium">
-                <Link
-                  className={`hover:text-text-primary transition-colors ${
-                    location.pathname === "/workspace" ? "text-accent font-semibold" : "text-text-secondary"
-                  }`}
-                  to="/workspace"
-                >
-                  Workspace
-                </Link>
-                <Link
-                  className={`hover:text-text-primary transition-colors ${
-                    location.pathname === "/observability" ? "text-accent font-semibold" : "text-text-secondary"
-                  }`}
-                  to="/observability"
-                >
-                  Observability
-                </Link>
-                <Link
-                  className={`hover:text-text-primary transition-colors ${
-                    location.pathname === "/architecture" ? "text-accent font-semibold" : "text-text-secondary"
-                  }`}
-                  to="/architecture"
-                >
-                  Archit.
-                </Link>
-              </div>
+              <Link
+                className={`transition-colors ${
+                  location.pathname === "/observability" ? "text-text-primary drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]" : "text-text-secondary hover:text-text-primary"
+                }`}
+                to="/observability"
+              >
+                Observability
+              </Link>
+              <Link
+                className={`transition-colors ${
+                  location.pathname === "/architecture" ? "text-text-primary drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]" : "text-text-secondary hover:text-text-primary"
+                }`}
+                to="/architecture"
+              >
+                Architecture
+              </Link>
             </div>
-            <a
-              className="text-xs text-text-secondary hover:text-text-primary border border-border-subtle rounded px-2.5 py-1 bg-bg-page font-mono transition-all"
-              href="https://github.com"
-              target="_blank"
-              rel="noreferrer"
-            >
-              GitHub
-            </a>
           </div>
+          <a
+            className="text-xs text-text-secondary hover:text-text-primary hover:bg-white/10 border border-white/5 rounded-full px-3 py-1 bg-white/5 font-mono transition-all"
+            href="https://github.com"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>
         </nav>
       )}
 

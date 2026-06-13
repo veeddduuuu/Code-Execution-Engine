@@ -86,10 +86,10 @@ export function ObservabilityPage() {
   const bootData = [8.5, 9.1, 7.8, 8.2, 14.5, 9.2, 8.0, 7.9, 8.6, 8.3, 7.8, 8.1];
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6 font-sans space-y-6">
+    <main className="mx-auto max-w-7xl px-4 pt-24 pb-12 font-sans space-y-6">
       {/* Toast Alert */}
       {toast && (
-        <div className="fixed bottom-4 right-4 bg-[#1D2024] text-[#F9F8F6] border border-border-subtle p-3 rounded shadow-lg font-mono text-2xs z-50 animate-bounce">
+        <div className="fixed bottom-4 right-4 bg-bg-card text-text-primary border border-border-subtle p-3 rounded shadow-lg font-mono text-2xs z-50 animate-bounce">
           ✓ {toast}
         </div>
       )}

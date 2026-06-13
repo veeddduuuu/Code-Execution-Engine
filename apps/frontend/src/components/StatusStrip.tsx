@@ -1,5 +1,6 @@
 import React from "react";
 import { HealthResponse, Job } from "../types/api";
+import { AnimatedNumber } from "./AnimatedNumber";
 
 interface StatusStripProps {
   health: HealthResponse | null;
@@ -27,65 +28,46 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ health, jobs }) => {
   const workerCount = workerMeta?.workers?.count ?? 0;
 
   return (
-    <div className="w-full bg-[#1C1F24] text-[#F9F8F6] border-y border-border-subtle py-1.5 px-4 flex items-center justify-between text-2xs overflow-hidden select-none font-mono">
-      {/* Ticker Content Wrapper */}
-      <div className="flex items-center space-x-6 animate-none whitespace-nowrap overflow-x-auto no-scrollbar w-full">
+    <div className="fixed bottom-0 left-0 w-full bg-[var(--bg-glass)] backdrop-blur-3xl text-text-secondary border-t border-white/5 py-1 px-4 flex items-center justify-between text-[10px] select-none font-mono z-50">
+      <div className="flex items-center space-x-4">
         {/* Metric Item: System Status */}
-        <div className="flex items-center space-x-2 shrink-0">
-          <span className="text-text-muted">SYSTEM:</span>
-          <span className="h-2 w-2 rounded-full bg-status-completed animate-ping" />
-          <span className="text-accent-green font-bold uppercase">
-            {health ? health.status : "OFFLINE"}
+        <div className="flex items-center space-x-1.5 cursor-pointer hover:text-text-primary transition-colors">
+          <span className={`h-1.5 w-1.5 rounded-full ${health?.status === "healthy" ? "bg-status-completed shadow-[0_0_8px_var(--status-completed)]" : "bg-status-failed animate-pulse"}`} />
+          <span className="uppercase tracking-wider font-bold">
+            {health?.status === "healthy" ? "SYSTEM ONLINE" : "SYSTEM DEGRADED"}
           </span>
         </div>
-
-        <span className="text-text-muted shrink-0">|</span>
-
-        {/* Metric Item: Queue Depth */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <span className="text-text-muted">QUEUE DEPTH:</span>
-          <span className={`font-bold ${queueDepth > 0 ? "text-status-running" : "text-[#F9F8F6]"}`}>
-            {queueDepth} jobs
-          </span>
-        </div>
-
-        <span className="text-text-muted shrink-0">|</span>
+        
+        <div className="h-3 w-px bg-white/10" />
 
         {/* Metric Item: Container Pool */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <span className="text-text-muted">WARMED CONTAINER POOL:</span>
-          <span className="text-accent-cyan font-bold">{poolAvailable} ready</span>
+        <div className="flex items-center space-x-2 cursor-pointer hover:text-text-primary transition-colors">
+          <span>POOL:</span>
+          <span className="text-text-primary font-bold"><AnimatedNumber value={poolAvailable} /> WARM</span>
         </div>
 
-        <span className="text-text-muted shrink-0">|</span>
+        <div className="h-3 w-px bg-white/10" />
 
         {/* Metric Item: Workers */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <span className="text-text-muted">ACTIVE WORKERS:</span>
-          <span className="text-status-pending font-bold">{workerCount} online</span>
+        <div className="flex items-center space-x-2 cursor-pointer hover:text-text-primary transition-colors">
+          <span>WORKERS:</span>
+          <span className="text-text-primary font-bold"><AnimatedNumber value={workerCount} /> ACTIVE</span>
+        </div>
+      </div>
+
+      <div className="flex items-center space-x-4">
+        {/* Metric Item: Queue Depth */}
+        <div className="flex items-center space-x-2 cursor-pointer hover:text-text-primary transition-colors">
+          <span>QUEUE:</span>
+          <span className="text-text-primary font-bold"><AnimatedNumber value={queueDepth} /></span>
         </div>
 
-        <span className="text-text-muted shrink-0">|</span>
+        <div className="h-3 w-px bg-white/10" />
 
         {/* Metric Item: Success Rate */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <span className="text-text-muted">SUCCESS RATE (LAST 100):</span>
+        <div className="flex items-center space-x-2 cursor-pointer hover:text-text-primary transition-colors">
+          <span>SUCCESS RATE:</span>
           <span className="text-accent-green font-bold">{getSuccessRate()}</span>
-        </div>
-
-        <span className="text-text-muted shrink-0">|</span>
-
-        {/* Metric Item: Average Latency */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <span className="text-text-muted">AVG LATENCY:</span>
-          <span className="text-accent-cyan font-bold">~120ms</span>
-        </div>
-
-        <span className="text-text-muted shrink-0">|</span>
-
-        {/* Ticker sliding message */}
-        <div className="hidden md:block text-text-muted italic shrink-0 text-3xs">
-          ★ Sandbox contains non-root users, isolated memory limits, read-only root, read/write /tmp only ★
         </div>
       </div>
     </div>

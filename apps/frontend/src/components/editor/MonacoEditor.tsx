@@ -29,23 +29,23 @@ export const MonacoEditor = forwardRef<MonacoEditorRef, MonacoEditorProps>(
     const handleEditorDidMount = (editor: any, monaco: Monaco) => {
       editorRef.current = editor;
 
-      // Define and set custom theme matching --bg-editor (#E6DED2) and --text-primary (#2D2D2D)
+      // Define and set custom theme matching --bg-editor (#161616) and --text-primary (#e0e0e0)
       monaco.editor.defineTheme("ceeTheme", {
-        base: "vs",
+        base: "vs-dark",
         inherit: true,
         rules: [
-          { token: "", foreground: "2D2D2D" },
-          { token: "comment", foreground: "6B6560", fontStyle: "italic" },
-          { token: "keyword", foreground: "B97A57", fontStyle: "bold" },
-          { token: "string", foreground: "3B6D11" },
-          { token: "number", foreground: "534AB7" },
+          { token: "", foreground: "E0E0E0" },
+          { token: "comment", foreground: "888888", fontStyle: "italic" },
+          { token: "keyword", foreground: "22C55E", fontStyle: "bold" },
+          { token: "string", foreground: "22C55E" },
+          { token: "number", foreground: "3B82F6" },
         ],
         colors: {
-          "editor.background": "#E6DED2",
-          "editor.foreground": "#2D2D2D",
-          "editorLineNumber.foreground": "#6B6560",
-          "editorLineNumber.activeForeground": "#B97A57",
-          "editor.lineHighlightBackground": "#DCD3C6",
+          "editor.background": "#161616",
+          "editor.foreground": "#E0E0E0",
+          "editorLineNumber.foreground": "#888888",
+          "editorLineNumber.activeForeground": "#22C55E",
+          "editor.lineHighlightBackground": "#1A1A1A",
         },
       });
 
@@ -70,7 +70,7 @@ export const MonacoEditor = forwardRef<MonacoEditorRef, MonacoEditorProps>(
       <Editor
         height="100%"
         defaultLanguage="javascript"
-        theme="vs"
+        theme="vs-dark"
         defaultValue={defaultCode}
         onMount={handleEditorDidMount}
         options={{

@@ -30,9 +30,9 @@ export const TerminalPanel = forwardRef<TerminalPanelRef, TerminalPanelProps>((p
     const term = new Terminal({
       cursorBlink: true,
       theme: {
-        background: "#DCD3C6", // matches --bg-terminal
-        foreground: "#3B6D11", // matches --status-completed
-        cursor: "#2D2D2D",
+        background: "#050505", // near-black
+        foreground: "#22c55e", // matches --status-completed
+        cursor: "#e0e0e0",
       },
       fontSize: 13,
       fontFamily: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",

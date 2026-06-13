@@ -1,4 +1,5 @@
 import React from "react";
+import { AnimatedNumber } from "./AnimatedNumber";
 import { HealthResponse } from "../types/api";
 
 interface NodeInfoDrawerProps {
@@ -122,7 +123,7 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Queue Depth</span>
-              <p className="font-mono text-text-primary text-lg font-bold">{queueMeta?.queueDepth ?? 0}</p>
+              <p className="font-mono text-text-primary text-lg font-bold"><AnimatedNumber value={queueMeta?.queueDepth ?? 0} /></p>
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">DLQ Failures</span>
@@ -132,7 +133,7 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Active Jobs</span>
-              <p className="font-mono text-text-primary font-bold">{queueMeta?.activeJobs ?? 0}</p>
+              <p className="font-mono text-text-primary font-bold"><AnimatedNumber value={queueMeta?.activeJobs ?? 0} /></p>
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Redis Ping</span>
@@ -147,7 +148,7 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Worker Instances</span>
-              <p className="font-mono text-text-primary text-lg font-bold">{workerMeta?.workers?.count ?? 0}</p>
+              <p className="font-mono text-text-primary text-lg font-bold"><AnimatedNumber value={workerMeta?.workers?.count ?? 0} /></p>
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Running Jobs</span>
@@ -169,7 +170,7 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Warmed Pool Size</span>
-              <p className="font-mono text-accent-green text-lg font-bold">{pool?.available ?? 0}</p>
+              <p className="font-mono text-accent-green text-lg font-bold"><AnimatedNumber value={pool?.available ?? 0} /></p>
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Total Containers</span>
@@ -177,7 +178,7 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Active Allocations</span>
-              <p className="font-mono text-text-primary font-bold">{pool?.active ?? 0}</p>
+              <p className="font-mono text-text-primary font-bold"><AnimatedNumber value={pool?.active ?? 0} /></p>
             </div>
             <div className="p-2 bg-bg-page rounded border border-border-subtle">
               <span className="text-2xs text-text-secondary uppercase font-semibold">Pool State</span>
@@ -211,23 +212,23 @@ export const NodeInfoPanel: React.FC<NodeInfoDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-[#1C1F24]/55 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-50 flex items-center justify-center p-6">
       {/* Backdrop overlay listener */}
       <div className="absolute inset-0 cursor-default" onClick={onClose} />
 
       {/* Bubble Modal Card */}
-      <div className="relative w-full max-w-md bg-bg-surface border border-border-subtle rounded-xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden">
+      <div className="relative w-full max-w-md bg-[var(--bg-glass)] backdrop-blur-3xl border border-white/10 rounded-[2rem] shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-border-subtle flex items-center justify-between bg-bg-muted">
+        <div className="p-5 border-b border-white/5 flex items-center justify-between bg-white/5">
           <div>
-            <span className="text-3xs uppercase tracking-wider font-semibold text-text-muted">{selectedInfo.role}</span>
-            <h3 className="text-xs font-bold font-mono text-text-primary uppercase truncate max-w-[240px] block mt-0.5">
+            <span className="text-4xs uppercase tracking-wider font-semibold text-text-muted">{selectedInfo.role}</span>
+            <h3 className="text-sm font-bold font-mono text-text-primary uppercase truncate max-w-[240px] block mt-1 tracking-wide">
               {selectedInfo.title}
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="text-text-secondary hover:text-text-primary p-1 bg-bg-page border border-border-subtle rounded transition-colors text-2xs font-mono font-bold"
+            className="text-text-secondary hover:text-text-primary p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors text-2xs font-mono font-bold"
           >
             ✕ CLOSE
           </button>

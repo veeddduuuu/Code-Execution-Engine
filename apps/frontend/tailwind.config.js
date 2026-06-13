@@ -50,6 +50,20 @@ export default {
         mono: ["JetBrains Mono", "SFMono-Regular", "Consolas", "monospace"],
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
+      animation: {
+        'shimmer': 'shimmer 1.5s infinite linear',
+        'slide-in-left': 'slide-in-left 0.3s ease-out forwards',
+      },
+      keyframes: {
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
+        },
+        'slide-in-left': {
+          '0%': { opacity: '0', transform: 'translateX(-20px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        }
+      }
     },
   },
   plugins: [],

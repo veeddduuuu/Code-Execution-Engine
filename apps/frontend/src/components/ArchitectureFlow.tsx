@@ -33,12 +33,12 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
   };
 
   const nodes = [
-    { id: "browser", label: "Browser (Client)", y: 40, desc: "Monaco editor submitting code payloads via Fetch API." },
-    { id: "api", label: "API Gateway", y: 120, desc: "Express service running token bucket rate limit & writing to DB." },
-    { id: "queue", label: "BullMQ Queue", y: 200, desc: "Redis-backed execution queue orchestrating jobs." },
-    { id: "worker", label: "Executor Worker", y: 280, desc: "Multi-threaded consumer pulling job tasks and managing pools." },
-    { id: "docker", label: "Docker Sandbox", y: 360, desc: "Pre-warmed, non-networked safe execution container." },
-    { id: "db", label: "PostgreSQL DB", y: 440, desc: "State preservation storage storing execution results." },
+    { id: "browser", label: "Browser (Client)", y: 40, desc: "Monaco editor submitting code payloads via Fetch API.", color: "var(--text-secondary)" },
+    { id: "api", label: "API Gateway", y: 120, desc: "Express service running token bucket rate limit & writing to DB.", color: "#22d3ee" }, // cyan
+    { id: "queue", label: "BullMQ Queue", y: 200, desc: "Redis-backed execution queue orchestrating jobs.", color: "#f59e0b" }, // amber
+    { id: "worker", label: "Executor Worker", y: 280, desc: "Multi-threaded consumer pulling job tasks and managing pools.", color: "#22d3ee" }, // cyan
+    { id: "docker", label: "Docker Sandbox", y: 360, desc: "Pre-warmed, non-networked safe execution container.", color: "#22c55e" }, // green
+    { id: "db", label: "PostgreSQL DB", y: 440, desc: "State preservation storage storing execution results.", color: "#c084fc" }, // purple
   ];
 
   return (
@@ -58,10 +58,12 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
               <feGaussianBlur stdDeviation="4" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
-            <linearGradient id="activeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="var(--status-running)" />
-              <stop offset="100%" stopColor="var(--accent)" />
-            </linearGradient>
+            {nodes.map(n => (
+              <linearGradient key={`grad-${n.id}`} id={`activeGradient-${n.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={n.color} />
+                <stop offset="100%" stopColor={n.color} />
+              </linearGradient>
+            ))}
             <linearGradient id="defaultGradient" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="var(--bg-page)" />
               <stop offset="100%" stopColor="var(--bg-terminal)" />
@@ -78,17 +80,20 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
             >
               <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--border)" />
             </marker>
-            <marker
-              id="arrow-active"
-              viewBox="0 0 10 10"
-              refX="6"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--status-running)" />
-            </marker>
+            {nodes.map(n => (
+              <marker
+                key={`arrow-active-${n.id}`}
+                id={`arrow-active-${n.id}`}
+                viewBox="0 0 10 10"
+                refX="6"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 1 L 10 5 L 0 9 z" fill={n.color} />
+              </marker>
+            ))}
           </defs>
 
           {/* Connectors (Lines) */}
@@ -97,19 +102,33 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
             const nextNode = nodes[index + 1];
             const running = isNodeRunning(node.id) && isNodeRunning(nextNode.id);
             return (
-              <g key={`link-${node.id}`}>
-                <line
-                  x1={200}
-                  y1={node.y + 25}
-                  x2={200}
-                  y2={nextNode.y - 25}
-                  stroke={running ? "var(--status-running)" : "var(--border)"}
-                  strokeWidth={running ? 3 : 2}
-                  strokeDasharray={node.id === "worker" || node.id === "docker" ? "4,4" : undefined}
-                  markerEnd={running ? "url(#arrow-active)" : "url(#arrow)"}
-                  className={running ? "animate-pulse" : ""}
-                />
-              </g>
+                <g key={`link-${node.id}`}>
+                  {/* Base line */}
+                  <line
+                    x1={200}
+                    y1={node.y + 25}
+                    x2={200}
+                    y2={nextNode.y - 25}
+                    stroke="var(--border)"
+                    strokeWidth={2}
+                    markerEnd={running ? undefined : "url(#arrow)"}
+                  />
+                  {/* Flowing animated line */}
+                  {running && (
+                    <line
+                      x1={200}
+                      y1={node.y + 25}
+                      x2={200}
+                      y2={nextNode.y - 25}
+                      stroke={node.color}
+                      strokeWidth={3}
+                      strokeDasharray="6, 6"
+                      markerEnd={`url(#arrow-active-${node.id})`}
+                    >
+                      <animate attributeName="stroke-dashoffset" from="24" to="0" dur="0.8s" repeatCount="indefinite" />
+                    </line>
+                  )}
+                </g>
             );
           })}
 
@@ -120,11 +139,11 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
 
             // Determine border & background colors based on active / selected state
             const rectStroke = isSelected
-              ? "var(--accent)"
+              ? node.color
               : isRunning
-              ? "var(--status-running)"
+              ? node.color
               : "var(--border)";
-            const rectFill = isRunning ? "url(#activeGradient)" : "url(#defaultGradient)";
+            const rectFill = isRunning ? `url(#activeGradient-${node.id})` : "url(#defaultGradient)";
             const textFill = isRunning ? "var(--bg-page)" : "var(--text-primary)";
             const labelWeight = isSelected || isRunning ? "font-bold" : "font-semibold";
 
@@ -144,11 +163,13 @@ export const ArchitectureFlow: React.FC<ArchitectureFlowProps> = ({
                     height={48}
                     rx={8}
                     fill="none"
-                    stroke={isSelected ? "var(--accent)" : "var(--status-running)"}
+                    stroke={node.color}
                     strokeWidth={6}
                     opacity={0.3}
                     filter="url(#glow)"
-                  />
+                  >
+                    {isRunning && <animate attributeName="opacity" values="0.1;0.6;0.1" dur="1.5s" repeatCount="indefinite" />}
+                  </rect>
                 )}
 
                 {/* Base Node Rectangle */}
