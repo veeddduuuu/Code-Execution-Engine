@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.CEE_USER }}
           key: ${{ secrets.CEE_SSH_KEY }}
           script: |
-            cd /home/ubuntu/code-execution-engine
+            cd /home/ubuntu/Code-Execution-Engine
             git fetch origin
             git reset --hard origin/main
             docker compose up -d --build --remove-orphans
