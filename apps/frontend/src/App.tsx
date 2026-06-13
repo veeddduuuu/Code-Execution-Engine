@@ -49,7 +49,7 @@ export function App() {
           </div>
           <a
             className="text-xs text-text-secondary hover:text-text-primary hover:bg-white/10 border border-white/5 rounded-full px-3 py-1 bg-white/5 font-mono transition-all"
-            href="https://github.com"
+            href="https://github.com/veeddduuuu/Code-Execution-Engine"
             target="_blank"
             rel="noreferrer"
           >
