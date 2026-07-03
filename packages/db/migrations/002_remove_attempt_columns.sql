@@ -1,3 +1,3 @@
 ALTER TABLE jobs
-DROP COLUMN attempts_made,
-DROP COLUMN max_attempts;
+DROP COLUMN IF EXISTS attempts_made,
+DROP COLUMN IF EXISTS max_attempts;

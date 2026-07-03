@@ -1,4 +1,9 @@
-CREATE TYPE job_status AS ENUM ('pending', 'running', 'completed', 'failed', 'dead');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_status') THEN
+        CREATE TYPE job_status AS ENUM ('pending', 'running', 'completed', 'failed', 'dead');
+    END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS jobs (
     id UUID PRIMARY KEY,
